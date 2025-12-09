@@ -432,15 +432,15 @@ class TradingManager:
             result = self.ws.buy_contract(
                 symbol=self.config.symbol,
                 contract_type=contract_type,
-                amount=stake,
+                stake=stake,
                 duration=duration,
                 duration_unit=duration_unit
             )
             
-            if result and result.get("buy"):
+            if result and result.get("contract_id"):
                 self.active_trade = {
-                    "contract_id": result["buy"]["contract_id"],
-                    "buy_price": result["buy"]["buy_price"],
+                    "contract_id": result["contract_id"],
+                    "buy_price": result["buy_price"],
                     "contract_type": contract_type,
                     "stake": stake,
                     "entry_time": datetime.now()

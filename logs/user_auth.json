@@ -2,12 +2,12 @@
   "sessions": {
     "7873001910": {
       "user_id": 7873001910,
-      "token_encrypted": "Z0FBQUFBQnBON2VFQlpibDlCSktOOGJETm1ldVpoWGxPdUx1SEJnZXZUemNOWlNmblZHX1d1M1hzTlpRZURaRnVuNlNPc1FFNy1pb0szVENVZ1BQTTRCVEE5U2pnRmVKMVE9PQ==",
+      "token_encrypted": "Z0FBQUFBQnBON3dMdFljU1pTNUVzZVBLR0xhTWc4VUx4Q1VsYmpvVldxeFNUVVBXV0w3WFVmVWw0S2lvVHVybjYtSjZkNXZ6Y3p2SlNnc01jcG9UZFpIb0loNURfcWdvcUE9PQ==",
       "token_fingerprint": "25ad422b4c63f2cd6ff03c271f295e4e9c7162f355b47f9fd971338d630fb180",
       "account_type": "demo",
       "language": "id",
-      "login_time": 1765259140.222163,
-      "last_activity": 1765259140.2221634
+      "login_time": 1765260299.099337,
+      "last_activity": 1765260299.0993376
     }
   }
 }

@@ -1075,7 +1075,19 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         selected_strategy = self._user_strategies.get(user.id, "TERMINAL")
         selected_symbol = self._user_context.get(f"selected_symbol_{user.id}", "R_100")
         
-        # Create trading config
+        # Map strategy name to enum
+        strategy_map = {
+            "TERMINAL": StrategyType.TERMINAL,
+            "TICK_PICKER": StrategyType.TICK_PICKER,
+            "DIGITPAD": StrategyType.DIGITPAD,
+            "AMT": StrategyType.AMT,
+            "SNIPER": StrategyType.SNIPER,
+            "LDP": StrategyType.LDP,
+            "MULTI_INDICATOR": StrategyType.MULTI_INDICATOR
+        }
+        strategy_type = strategy_map.get(selected_strategy, StrategyType.MULTI_INDICATOR)
+        
+        # Create trading config with correct strategy
         config = TradingConfig(
             symbol=selected_symbol,
             base_stake=1.0,
@@ -1083,20 +1095,8 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             take_profit=10.0,
             stop_loss=25.0,
             max_trades=100,
-            strategy=StrategyType.MULTI_INDICATOR
+            strategy=strategy_type
         )
-        
-        # Map strategy name to enum
-        strategy_map = {
-            "TERMINAL": StrategyType.MULTI_INDICATOR,
-            "TICK_PICKER": StrategyType.TICK_ANALYZER,
-            "DIGITPAD": StrategyType.LDP,
-            "AMT": StrategyType.MULTI_INDICATOR,
-            "SNIPER": StrategyType.MULTI_INDICATOR,
-            "LDP": StrategyType.LDP,
-            "MULTI_INDICATOR": StrategyType.MULTI_INDICATOR
-        }
-        config.strategy = strategy_map.get(selected_strategy, StrategyType.MULTI_INDICATOR)
         
         # Create or get trading manager
         if user.id not in self._trading_managers:

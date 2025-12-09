@@ -268,7 +268,10 @@ def verify_telegram_webapp(init_data: str) -> Optional[Dict]:
         import urllib.parse
         import time
         
-        params = dict(p.split("=") for p in init_data.split("&") if "=" in p)
+        # Parse using parse_qsl to properly handle plus signs as spaces (application/x-www-form-urlencoded)
+        parsed_pairs = urllib.parse.parse_qsl(init_data, keep_blank_values=True)
+        params = dict(parsed_pairs)
+        
         received_hash = params.pop("hash", "")
         data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
         
@@ -305,7 +308,8 @@ def verify_telegram_webapp(init_data: str) -> Optional[Dict]:
             logger.error("Invalid auth_date format")
             return None
         
-        user_str = urllib.parse.unquote(params.get("user", "{}"))
+        # User is already decoded by parse_qsl
+        user_str = params.get("user", "{}")
         user_data = json.loads(user_str)
         
         return {
