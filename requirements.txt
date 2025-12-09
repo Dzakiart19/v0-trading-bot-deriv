@@ -18,3 +18,15 @@ python-dotenv>=1.0.0
 
 # Security
 cryptography>=41.0.0
+cryptography
+fastapi
+httpx
+numpy
+pydantic
+python-dotenv
+python-telegram-bot
+telegram
+uvicorn
+websocket
+websocket-client
+websockets
