@@ -108,6 +108,7 @@ class TradingManager:
         self._trade_lock = threading.RLock()
         self._stop_event = threading.Event()
         self._auto_trade_thread: Optional[threading.Thread] = None
+        self._watchdog_thread: Optional[threading.Thread] = None
         
         # Callbacks
         self.on_trade_opened: Optional[Callable] = None
@@ -115,9 +116,19 @@ class TradingManager:
         self.on_session_complete: Optional[Callable] = None
         self.on_error: Optional[Callable] = None
         self.on_progress: Optional[Callable] = None
+        self.on_timeout_warning: Optional[Callable] = None
         
         # Last progress milestone for rate limiting
         self._last_progress_milestone = -1
+        
+        # Timeout and watchdog tracking
+        self._consecutive_timeouts = 0
+        self._max_consecutive_timeouts = 3
+        self._last_trade_attempt = 0
+        self._last_activity_time = 0
+        self._watchdog_interval = 60
+        self._stuck_threshold = 300
+        self._trading_paused_due_to_timeout = False
         
         # If config provided, configure immediately
         if config:
@@ -244,6 +255,11 @@ class TradingManager:
         
         self.state = TradingState.RUNNING
         self._stop_event.clear()
+        self._last_activity_time = time.time()
+        self._trading_paused_due_to_timeout = False
+        
+        # Start watchdog timer
+        self._start_watchdog()
         
         logger.info(
             f"Auto Trading started | Symbol: {self.config.symbol} | "
@@ -255,6 +271,68 @@ class TradingManager:
         self._save_recovery_state()
         
         return True
+    
+    def _start_watchdog(self):
+        """Start watchdog thread to detect stuck state"""
+        if self._watchdog_thread and self._watchdog_thread.is_alive():
+            return
+        
+        def watchdog_loop():
+            while self.state == TradingState.RUNNING and not self._stop_event.is_set():
+                try:
+                    time.sleep(self._watchdog_interval)
+                    
+                    if self.state != TradingState.RUNNING:
+                        break
+                    
+                    current_time = time.time()
+                    inactive_time = current_time - self._last_activity_time
+                    
+                    if inactive_time > self._stuck_threshold:
+                        logger.warning(f"Watchdog: No trade activity for {inactive_time:.0f}s, restarting session...")
+                        
+                        if self.on_progress:
+                            self.on_progress({
+                                "type": "watchdog_restart",
+                                "message": f"⚠️ Bot stuck selama {int(inactive_time/60)} menit, melakukan restart..."
+                            })
+                        
+                        self._restart_trading_session()
+                        
+                except Exception as e:
+                    logger.error(f"Watchdog error: {e}")
+        
+        self._watchdog_thread = threading.Thread(target=watchdog_loop, daemon=True)
+        self._watchdog_thread.start()
+        logger.info("Watchdog timer started")
+    
+    def _restart_trading_session(self):
+        """Restart trading session after stuck detection"""
+        try:
+            if not self.config:
+                return
+            
+            self._last_activity_time = time.time()
+            self._consecutive_timeouts = 0
+            self._trading_paused_due_to_timeout = False
+            self.pending_result = False
+            self.active_trade = None
+            
+            if self.ws and hasattr(self.ws, '_consecutive_timeouts'):
+                self.ws._consecutive_timeouts = 0
+            
+            if self.ws and self.config:
+                try:
+                    self.ws.unsubscribe_ticks(self.config.symbol)
+                except Exception:
+                    pass
+                time.sleep(1)
+                self.ws.subscribe_ticks(self.config.symbol, self._on_tick)
+            
+            logger.info("Trading session restarted by watchdog")
+            
+        except Exception as e:
+            logger.error(f"Failed to restart trading session: {e}")
     
     def stop(self):
         """Stop trading session - Only control user has"""
@@ -326,14 +404,46 @@ class TradingManager:
             "symbol": self.config.symbol if self.config else "N/A"
         }
     
+    def get_debug_info(self) -> Dict[str, Any]:
+        """Get detailed debug information for troubleshooting"""
+        ws_metrics = {}
+        if self.ws and hasattr(self.ws, 'get_connection_metrics'):
+            ws_metrics = self.ws.get_connection_metrics()
+        
+        return {
+            "trading_state": self.state.value,
+            "pending_result": self.pending_result,
+            "active_trade": bool(self.active_trade),
+            "consecutive_timeouts": self._consecutive_timeouts,
+            "trading_paused": self._trading_paused_due_to_timeout,
+            "last_activity_time": self._last_activity_time,
+            "last_trade_attempt": self._last_trade_attempt,
+            "session_stats": {
+                "trades": self.session_trades,
+                "wins": self.session_wins,
+                "losses": self.session_losses,
+                "profit": self.session_profit,
+                "win_rate": self._get_win_rate()
+            },
+            "ws_connection": ws_metrics,
+            "config": {
+                "symbol": self.config.symbol if self.config else None,
+                "strategy": self.config.strategy.value if self.config else None,
+                "base_stake": self.config.base_stake if self.config else None
+            }
+        }
+    
     def _on_tick(self, tick: Dict[str, Any]):
         """Handle incoming tick data - Auto process signals"""
         if self.state != TradingState.RUNNING:
             logger.debug(f"Tick ignored - state is {self.state.value}")
             return
         
+        self._last_activity_time = time.time()
+        
         if self.pending_result:
             logger.debug("Tick ignored - waiting for pending trade result")
+            self._last_activity_time = time.time()
             return  # Wait for current trade to complete
         
         if not self.strategy:
@@ -451,10 +561,19 @@ class TradingManager:
         return self.config.base_stake
     
     def _execute_trade(self, signal, stake: float):
-        """Execute a trade"""
+        """Execute a trade with timeout tracking and recovery"""
         if not self.config:
             logger.error("No config available for trade execution")
             return
+        
+        if self._trading_paused_due_to_timeout:
+            logger.warning("Trading paused due to consecutive timeouts. Waiting for connection recovery...")
+            if self._check_and_resume_trading():
+                logger.info("Connection recovered, resuming trading")
+            else:
+                return
+        
+        self._last_trade_attempt = time.time()
         
         try:
             logger.info(f"Executing trade with stake ${stake:.2f}")
@@ -499,6 +618,9 @@ class TradingManager:
             )
             
             if result and result.get("contract_id"):
+                self._consecutive_timeouts = 0
+                self._last_activity_time = time.time()
+                
                 self.active_trade = {
                     "contract_id": result["contract_id"],
                     "buy_price": result["buy_price"],
@@ -519,13 +641,59 @@ class TradingManager:
                     self.on_trade_opened(self.active_trade)
             else:
                 self.pending_result = False
-                logger.error(f"Failed to open trade: {result}")
+                self._handle_trade_failure(signal)
                 
         except Exception as e:
             self.pending_result = False
             logger.error(f"Error executing trade: {e}")
+            self._handle_trade_failure(signal, str(e))
+    
+    def _handle_trade_failure(self, signal, error_msg: Optional[str] = None):
+        """Handle trade execution failure with timeout tracking"""
+        self._consecutive_timeouts += 1
+        
+        logger.warning(f"Trade failed (consecutive failures: {self._consecutive_timeouts})")
+        
+        if self._consecutive_timeouts >= self._max_consecutive_timeouts:
+            self._trading_paused_due_to_timeout = True
+            logger.error(f"Trading paused after {self._consecutive_timeouts} consecutive failures")
+            
+            if self.on_progress:
+                self.on_progress({
+                    "type": "trading_paused",
+                    "message": f"⚠️ Trading dijeda setelah {self._consecutive_timeouts}x timeout berturut-turut. Menunggu koneksi stabil..."
+                })
+            
             if self.on_error:
-                self.on_error(str(e))
+                self.on_error(f"Trading paused: {self._consecutive_timeouts} consecutive failures")
+        
+        elif error_msg and self.on_error:
+            self.on_error(error_msg)
+    
+    def _check_and_resume_trading(self) -> bool:
+        """Check if connection is healthy and resume trading"""
+        if not self.ws:
+            return False
+        
+        try:
+            if hasattr(self.ws, 'check_connection_health') and self.ws.check_connection_health():
+                self._trading_paused_due_to_timeout = False
+                self._consecutive_timeouts = 0
+                
+                if hasattr(self.ws, '_consecutive_timeouts'):
+                    self.ws._consecutive_timeouts = 0
+                
+                if self.on_progress:
+                    self.on_progress({
+                        "type": "trading_resumed",
+                        "message": "✅ Koneksi stabil, trading dilanjutkan!"
+                    })
+                
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error checking connection: {e}")
+            return False
     
     def _on_contract_update(self, contract: Dict[str, Any]):
         """Handle contract status updates"""
@@ -626,9 +794,10 @@ class TradingManager:
             # Progress notification
             self._notify_progress()
             
-            # Clear active trade
+            # Clear active trade and update activity time
             self.active_trade = None
             self.pending_result = False
+            self._last_activity_time = time.time()
             
             # Save recovery state
             self._save_recovery_state()

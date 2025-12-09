@@ -72,6 +72,13 @@ class DerivWebSocket:
         # Last authorization error for detailed feedback
         self._last_auth_error: Optional[str] = None
         
+        # Timeout tracking for diagnostics
+        self._timeout_count = 0
+        self._consecutive_timeouts = 0
+        self._last_successful_request = 0
+        self._total_requests = 0
+        self._successful_requests = 0
+        
         # Callbacks
         self.on_balance_update: Optional[Callable] = None
         self.on_contract_update: Optional[Callable] = None
@@ -381,32 +388,66 @@ class DerivWebSocket:
             logger.error(f"Send error: {e}")
             return -1
     
-    def _send_and_wait(self, data: dict, timeout: float = 30) -> Optional[dict]:
-        """Send message and wait for response"""
+    def _send_and_wait(self, data: dict, timeout: float = 30, retries: int = 0) -> Optional[dict]:
+        """Send message and wait for response with retry support and metric tracking"""
         if not self.connected or not self.ws:
             logger.error("Cannot send - not connected")
             return None
         
-        req_id = self._get_request_id()
-        data["req_id"] = req_id
+        max_attempts = retries + 1
+        last_error = None
         
-        event = threading.Event()
-        self._response_events[req_id] = event
-        
-        try:
-            self.ws.send(json.dumps(data))
+        for attempt in range(max_attempts):
+            req_id = self._get_request_id()
+            data_copy = data.copy()
+            data_copy["req_id"] = req_id
             
-            if event.wait(timeout):
-                response = self._responses.pop(req_id, None)
-                return response
-            else:
-                logger.error(f"Request timeout for: {list(data.keys())}")
-                return None
-        except Exception as e:
-            logger.error(f"Send and wait error: {e}")
-            return None
-        finally:
-            self._response_events.pop(req_id, None)
+            event = threading.Event()
+            self._response_events[req_id] = event
+            self._total_requests += 1
+            
+            try:
+                start_time = time.time()
+                self.ws.send(json.dumps(data_copy))
+                
+                if event.wait(timeout):
+                    response = self._responses.pop(req_id, None)
+                    elapsed = time.time() - start_time
+                    logger.debug(f"Request completed in {elapsed:.2f}s: {list(data.keys())}")
+                    
+                    self._successful_requests += 1
+                    self._last_successful_request = time.time()
+                    self._consecutive_timeouts = 0
+                    return response
+                else:
+                    elapsed = time.time() - start_time
+                    last_error = f"Request timeout ({elapsed:.1f}s) for: {list(data.keys())}"
+                    logger.warning(f"Attempt {attempt + 1}/{max_attempts}: {last_error}")
+                    
+                    self._timeout_count += 1
+                    self._consecutive_timeouts += 1
+                    
+                    if attempt < max_attempts - 1:
+                        delay = min(2 ** attempt, 4)
+                        logger.info(f"Retrying in {delay}s...")
+                        time.sleep(delay)
+                    
+            except Exception as e:
+                last_error = str(e)
+                logger.error(f"Send and wait error (attempt {attempt + 1}): {e}")
+                self._timeout_count += 1
+                self._consecutive_timeouts += 1
+                
+                if attempt < max_attempts - 1:
+                    delay = min(2 ** attempt, 4)
+                    time.sleep(delay)
+            finally:
+                self._response_events.pop(req_id, None)
+                self._responses.pop(req_id, None)
+        
+        if last_error:
+            logger.error(f"All {max_attempts} attempts failed: {last_error}")
+        return None
     
     def authorize(self, token: str, timeout: float = 30) -> tuple:
         """
@@ -627,14 +668,29 @@ class DerivWebSocket:
         if barrier is not None:
             parameters["barrier"] = barrier
         
-        # Get proposal first
+        # Quick connection check (don't use full health check to avoid ping overhead)
+        if not self.connected or not self.authorized:
+            logger.error("Not connected or authorized - cannot place trade")
+            return None
+        
+        # Get proposal with retry mechanism
         logger.info(f"Getting proposal for {contract_type} on {symbol}")
         proposal_req = {"proposal": 1, **parameters}
-        proposal_resp = self._send_and_wait(proposal_req, timeout=15)
         
-        if not proposal_resp or "error" in proposal_resp:
-            error = proposal_resp.get("error", {}) if proposal_resp else {}
-            logger.error(f"Proposal error: {error.get('message', 'Unknown')}")
+        proposal_resp = self._send_and_wait(proposal_req, timeout=10, retries=2)
+        
+        if not proposal_resp:
+            logger.error(f"Proposal timeout (consecutive: {self._consecutive_timeouts})")
+            
+            if self.on_error and self._consecutive_timeouts >= 3:
+                self.on_error("Multiple proposal timeouts detected. Connection may be unstable.")
+            return None
+        
+        if "error" in proposal_resp:
+            error = proposal_resp.get("error", {})
+            error_code = error.get("code", "Unknown")
+            error_msg = error.get("message", "Unknown error")
+            logger.error(f"Proposal error [{error_code}]: {error_msg}")
             return None
         
         proposal = proposal_resp.get("proposal", {})
@@ -644,12 +700,12 @@ class DerivWebSocket:
             logger.error("No proposal ID received")
             return None
         
-        # Execute buy
+        # Execute buy with retry
         logger.info(f"Executing buy for proposal {proposal_id}")
         buy_resp = self._send_and_wait({
             "buy": proposal_id,
             "price": stake
-        }, timeout=15)
+        }, timeout=10, retries=1)
         
         if buy_resp and "buy" in buy_resp:
             buy_data = buy_resp["buy"]
@@ -666,8 +722,12 @@ class DerivWebSocket:
                 "start_time": buy_data.get("start_time")
             }
         
-        error = buy_resp.get("error", {}) if buy_resp else {}
-        logger.error(f"Buy error: {error.get('message', 'Unknown')}")
+        if not buy_resp:
+            logger.error(f"Buy timeout (consecutive: {self._consecutive_timeouts})")
+        else:
+            error = buy_resp.get("error", {})
+            logger.error(f"Buy error [{error.get('code', 'Unknown')}]: {error.get('message', 'Unknown')}")
+        
         return None
     
     def get_active_contracts(self) -> Dict[str, dict]:
@@ -717,6 +777,47 @@ class DerivWebSocket:
     def is_connected(self) -> bool:
         """Check if connected and authorized"""
         return self.connected and self.authorized
+    
+    def check_connection_health(self) -> bool:
+        """
+        Verify connection is healthy before placing trades.
+        Sends ping and verifies response within timeout.
+        """
+        if not self.connected or not self.ws:
+            logger.warning("Connection health check: Not connected")
+            return False
+        
+        if not self.authorized:
+            logger.warning("Connection health check: Not authorized")
+            return False
+        
+        try:
+            ping_resp = self._send_and_wait({"ping": 1}, timeout=5)
+            if ping_resp and "ping" in ping_resp:
+                return True
+            logger.warning("Connection health check: No ping response")
+            return False
+        except Exception as e:
+            logger.error(f"Connection health check error: {e}")
+            return False
+    
+    def get_connection_metrics(self) -> dict:
+        """Get connection health metrics for debugging"""
+        success_rate = 0
+        if self._total_requests > 0:
+            success_rate = (self._successful_requests / self._total_requests) * 100
+        
+        return {
+            "connected": self.connected,
+            "authorized": self.authorized,
+            "total_requests": self._total_requests,
+            "successful_requests": self._successful_requests,
+            "timeout_count": self._timeout_count,
+            "consecutive_timeouts": self._consecutive_timeouts,
+            "success_rate": round(success_rate, 1),
+            "last_successful_request": self._last_successful_request,
+            "reconnect_attempts": self._reconnect_attempts
+        }
     
     def get_balance(self) -> float:
         """Get current balance"""

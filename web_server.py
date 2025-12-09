@@ -1273,6 +1273,48 @@ async def trading_status(telegram_id: int = Query(...)):
     }
 
 
+@app.get("/api/debug")
+async def get_debug_info(telegram_id: int = Query(None)):
+    """
+    Get debug information including connection metrics and trading state.
+    Used for troubleshooting timeout and connection issues.
+    """
+    debug_info = {
+        "server_time": datetime.now().isoformat(),
+        "active_websocket_connections": manager.get_connection_count(),
+        "active_trading_managers": len(trading_managers),
+        "active_deriv_connections": len(deriv_connections)
+    }
+    
+    if telegram_id:
+        tm = trading_managers.get(telegram_id)
+        ws = deriv_connections.get(telegram_id)
+        
+        debug_info["user"] = {
+            "telegram_id": telegram_id,
+            "has_trading_manager": tm is not None,
+            "has_deriv_connection": ws is not None
+        }
+        
+        if tm and hasattr(tm, 'get_debug_info'):
+            debug_info["trading_debug"] = tm.get_debug_info()
+        
+        if ws and hasattr(ws, 'get_connection_metrics'):
+            debug_info["connection_metrics"] = ws.get_connection_metrics()
+    
+    all_manager_states = {}
+    for uid, tm in trading_managers.items():
+        all_manager_states[uid] = {
+            "state": tm.state.value if hasattr(tm, 'state') else "unknown",
+            "trades": tm.session_trades if hasattr(tm, 'session_trades') else 0,
+            "pending_result": tm.pending_result if hasattr(tm, 'pending_result') else False
+        }
+    
+    debug_info["all_trading_managers"] = all_manager_states
+    
+    return debug_info
+
+
 @app.get("/api/deriv/account")
 async def get_deriv_account_info(telegram_id: int = Query(...)):
     """Get Deriv account info for a user"""
