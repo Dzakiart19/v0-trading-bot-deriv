@@ -25,7 +25,16 @@ numpy
 pydantic
 python-dotenv
 python-telegram-bot
-telegram
 uvicorn
 websocket
 websocket-client
+cryptography
+fastapi
+httpx
+numpy
+pydantic
+python-dotenv
+python-telegram-bot
+uvicorn
+websocket-client
+websockets
