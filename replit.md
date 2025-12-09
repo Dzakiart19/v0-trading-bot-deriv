@@ -53,6 +53,8 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
 
 ## Recent Changes
+- 2025-12-09: **AMT Accumulator Fix** - Changed growth rate to conservative 1-2% (was 3-5%) for wider barriers and less barrier hits
+- 2025-12-09: **AMT Accumulator Fix** - Changed take_profit from 200% to 50% of stake for faster/more consistent wins
 - 2025-12-09: **CRITICAL FIX** - WebSocket reconnect with auto re-authorization dan state recovery
 - 2025-12-09: Timeout proposal/buy dinaikkan dari 10s ke 20s untuk stabilitas
 - 2025-12-09: Ping interval dikurangi dari 60s ke 30s (sesuai Deriv best practices)
