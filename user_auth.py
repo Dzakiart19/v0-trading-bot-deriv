@@ -360,6 +360,14 @@ class UserAuth:
                 del self._sessions[user_id]
                 self._save_sessions()
                 logger.info(f"Cleared invalid session for user {user_id}")
+    
+    def reset_all(self):
+        """Clear all sessions from memory (for fresh start)"""
+        with self._lock:
+            self._sessions.clear()
+            self._pending_logins.clear()
+            self._login_attempts.clear()
+            logger.info("All user sessions cleared from memory")
 
 
 # Global instance

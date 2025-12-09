@@ -91,6 +91,13 @@ class ChatMapping:
             if cid == chat_id:
                 return user_id
         return None
+    
+    def reset_all(self):
+        """Clear all mappings from memory (for fresh start)"""
+        with self._lock:
+            self._mapping.clear()
+            self._active_chats.clear()
+            logger.info("All chat mappings cleared from memory")
 
 
 # Global instance

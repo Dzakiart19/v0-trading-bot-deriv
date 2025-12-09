@@ -5,6 +5,29 @@ Complete integration of all components
 
 import os
 import sys
+
+# CRITICAL: Clear session files BEFORE importing any modules that use singletons
+# This prevents loading stale session data into memory
+def _early_cleanup():
+    """Delete session files before module imports to prevent stale data loading"""
+    log_files = [
+        "logs/user_auth.json",
+        "logs/session_recovery.json", 
+        "logs/chat_mapping.json",
+        "logs/.session_secret"
+    ]
+    
+    for file_path in log_files:
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except:
+            pass
+
+# Run cleanup immediately before any other imports
+_early_cleanup()
+
+# Now safe to import modules - singletons will initialize with empty state
 import logging
 import asyncio
 import signal
@@ -20,7 +43,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import components
+# Import components (singletons now load with no stale data)
 from telegram_bot import TelegramBot
 import web_server
 
@@ -30,7 +53,7 @@ shutdown_event = asyncio.Event()
 
 
 def clear_session_files():
-    """Clear all session/log files on startup and shutdown"""
+    """Clear all session/log files on shutdown"""
     log_files = [
         "logs/user_auth.json",
         "logs/session_recovery.json", 
@@ -66,9 +89,7 @@ async def main():
     # Create log directory
     os.makedirs("logs", exist_ok=True)
     
-    # Clear old session files on startup (fresh start)
-    clear_session_files()
-    
+    logger.info("Session files cleared - fresh start")
     logger.info("=" * 60)
     logger.info("    DERIV AUTO TRADING BOT")
     logger.info("    With Multi-Strategy WebApps")
