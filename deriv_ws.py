@@ -21,7 +21,7 @@ class DerivWebSocket:
     def __init__(self, app_id: Optional[str] = None):
         import os
         if app_id is None:
-            app_id = os.environ.get("DERIV_APP_ID", "1089")
+            app_id = os.environ.get("DERIV_APP_ID", "") or "1089"
         self.app_id = app_id
         self.ws: Optional[websocket.WebSocketApp] = None
         self.ws_thread: Optional[threading.Thread] = None

@@ -28,7 +28,7 @@ def main():
         print("Make sure you run this from the scripts directory")
         sys.exit(1)
     
-    app_id = os.environ.get("DERIV_APP_ID", "1089")
+    app_id = os.environ.get("DERIV_APP_ID", "") or "1089"
     
     print(f"App ID: {app_id}")
     print("Connecting to Deriv...")

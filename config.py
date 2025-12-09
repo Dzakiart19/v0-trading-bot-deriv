@@ -68,7 +68,7 @@ class BotConfig:
         """Load configuration from environment variables"""
         return cls(
             telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
-            deriv_app_id=os.environ.get("DERIV_APP_ID", "1089"),
+            deriv_app_id=os.environ.get("DERIV_APP_ID", "") or "1089",
             deriv_endpoint=os.environ.get("DERIV_ENDPOINT", "wss://ws.binaryws.com/websockets/v3"),
             web_host=os.environ.get("WEB_HOST", "0.0.0.0"),
             web_port=int(os.environ.get("WEB_PORT", "5000")),

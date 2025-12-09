@@ -468,7 +468,7 @@ deriv_connections: Dict[int, Any] = {}
 trading_managers: Dict[int, Any] = {}
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-DERIV_APP_ID = os.environ.get("DERIV_APP_ID", "1089")
+DERIV_APP_ID = os.environ.get("DERIV_APP_ID", "") or "1089"
 
 
 # ==================== Trading Manager Registration ====================
