@@ -1,0 +1,3 @@
+Date,Time,Symbol,Direction,Entry,Exit,Stake,Payout,Profit,Result,Martingale Level,Balance Before,Balance After,Win Rate,Strategy,Confidence,Confluence
+2025-12-09,16:44:06,R_100,BUY,0.0,610.55,1.2,2.34,1.14,WIN,0,9724.56,9724.56,100.0%,TERMINAL,0.7,50.0
+2025-12-09,16:44:30,R_100,SELL,0.0,611.06,1.0,1.95,0.95,WIN,0,9725.51,9725.51,100.0%,TERMINAL,0.7,50.0

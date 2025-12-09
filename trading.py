@@ -608,7 +608,7 @@ class TradingManager:
         return self.config.base_stake
     
     def _execute_trade(self, signal, stake: float):
-        """Execute a trade with timeout tracking and recovery"""
+        """Execute a trade in a separate thread to avoid blocking WebSocket"""
         if not self.config:
             logger.error("No config available for trade execution")
             return
@@ -620,19 +620,41 @@ class TradingManager:
             else:
                 return
         
+        # Set pending_result immediately to prevent duplicate trades
+        self.pending_result = True
         self._last_trade_attempt = time.time()
+        
+        # Capture signal data for thread
+        signal_confidence = signal.confidence if hasattr(signal, 'confidence') else 0.5
+        if hasattr(signal, 'contract_type'):
+            contract_type = signal.contract_type
+        elif hasattr(signal, 'direction'):
+            contract_type = "CALL" if signal.direction in ["UP", "BUY", "CALL"] else "PUT"
+        else:
+            contract_type = "CALL"
+        
+        # Run trade execution in a separate thread to avoid blocking WebSocket
+        def trade_worker():
+            try:
+                self._execute_trade_worker(contract_type, stake, signal_confidence)
+            except Exception as e:
+                logger.error(f"Trade worker error: {e}")
+                self.pending_result = False
+                self._handle_trade_failure(signal, str(e))
+        
+        trade_thread = threading.Thread(target=trade_worker, daemon=True)
+        trade_thread.start()
+        logger.info(f"Trade execution started in separate thread for {contract_type}")
+    
+    def _execute_trade_worker(self, contract_type: str, stake: float, signal_confidence: float):
+        """Worker method that actually executes the trade (runs in separate thread)"""
+        if not self.config:
+            logger.error("No config available in trade worker")
+            self.pending_result = False
+            return
         
         try:
             logger.info(f"Executing trade with stake ${stake:.2f}")
-            
-            # Determine contract type based on signal
-            if hasattr(signal, 'contract_type'):
-                contract_type = signal.contract_type
-            elif hasattr(signal, 'direction'):
-                contract_type = "CALL" if signal.direction in ["UP", "BUY", "CALL"] else "PUT"
-            else:
-                contract_type = "CALL"  # Default
-            
             logger.info(f"Contract type: {contract_type}")
             
             # Get duration
@@ -654,8 +676,6 @@ class TradingManager:
                 duration, duration_unit = get_default_duration(self.config.symbol)
             
             # Place the trade
-            self.pending_result = True
-            
             result = self.ws.buy_contract(
                 symbol=self.config.symbol,
                 contract_type=contract_type,
@@ -680,7 +700,7 @@ class TradingManager:
                 
                 logger.info(
                     f"Trade opened | Type: {contract_type} | "
-                    f"Stake: {stake:.2f} | Confidence: {signal.confidence:.1%}"
+                    f"Stake: {stake:.2f} | Confidence: {signal_confidence:.1%}"
                 )
                 
                 if self.on_trade_opened:
@@ -688,12 +708,53 @@ class TradingManager:
                     self.on_trade_opened(self.active_trade)
             else:
                 self.pending_result = False
-                self._handle_trade_failure(signal)
+                self._handle_trade_failure_internal(contract_type)
                 
         except Exception as e:
             self.pending_result = False
             logger.error(f"Error executing trade: {e}")
-            self._handle_trade_failure(signal, str(e))
+            self._handle_trade_failure_internal(contract_type, str(e))
+    
+    def _handle_trade_failure_internal(self, contract_type: str, error_msg: Optional[str] = None):
+        """Handle trade execution failure (thread-safe version)"""
+        self._consecutive_timeouts += 1
+        
+        logger.warning(f"Trade failed (consecutive failures: {self._consecutive_timeouts}/{self._max_consecutive_timeouts})")
+        
+        if self._consecutive_timeouts >= self._max_consecutive_timeouts:
+            logger.warning(f"Multiple failures detected, attempting connection recovery...")
+            
+            if self._check_and_resume_trading():
+                logger.info("Connection recovered after failures")
+                self._consecutive_timeouts = 0
+                return
+            
+            self._trading_paused_due_to_timeout = True
+            logger.error(f"Trading paused after {self._consecutive_timeouts} consecutive failures")
+            
+            if self.on_progress:
+                self.on_progress({
+                    "type": "trading_paused",
+                    "message": f"⚠️ Trading dijeda: {self._consecutive_timeouts}x gagal. Mencoba pemulihan otomatis..."
+                })
+            
+            def recovery_task():
+                time.sleep(5)
+                if self._check_and_resume_trading():
+                    logger.info("Automatic recovery successful")
+                    if self.on_progress:
+                        self.on_progress({
+                            "type": "trading_resumed",
+                            "message": "✅ Koneksi pulih, trading dilanjutkan!"
+                        })
+            
+            threading.Thread(target=recovery_task, daemon=True).start()
+            
+            if self.on_error:
+                self.on_error(f"Trading paused: {self._consecutive_timeouts} consecutive failures - attempting recovery")
+        
+        elif error_msg and self.on_error:
+            self.on_error(error_msg)
     
     def _handle_trade_failure(self, signal, error_msg: Optional[str] = None):
         """Handle trade execution failure with smart recovery"""
