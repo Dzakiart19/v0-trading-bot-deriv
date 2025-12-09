@@ -38,3 +38,14 @@ python-telegram-bot
 uvicorn
 websocket-client
 websockets
+cryptography
+fastapi
+httpx
+numpy
+pydantic
+python-dotenv
+python-telegram-bot
+telegram
+uvicorn
+websocket-client
+websockets
