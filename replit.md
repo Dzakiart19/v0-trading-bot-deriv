@@ -53,6 +53,11 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
 
 ## Recent Changes
+- 2025-12-09: **Critical Fix** - Session files now cleared BEFORE module imports to prevent stale data
+- 2025-12-09: Added `_early_cleanup()` in main.py that runs before any singleton imports
+- 2025-12-09: Added `reset_all()` methods to user_auth.py and chat_mapping.py for in-memory purge
+- 2025-12-09: Enhanced trading callbacks with proper async event loop capture for Telegram notifications
+- 2025-12-09: Added Indonesian language trade notifications (`_notify_trade_opened`, `_notify_trade_closed`)
 - 2025-12-09: Fixed WebApp auto-connect issue - now syncs Deriv token and account info to session_manager when login via Telegram bot
 - 2025-12-09: Added `clear_user_data()` helper to WebSessionManager for centralized cleanup on logout
 - 2025-12-09: Logout handlers now properly clear session_manager data to prevent stale sessions
@@ -61,3 +66,9 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - 2024-12-09: Cleaned web_server.py - removed duplicate routes, serve HTML from webapps/
 - 2024-12: Migrated from Next.js to full Python
 - Configured for Replit environment with port 5000
+
+## Session Management
+- Session files (`logs/user_auth.json`, `logs/chat_mapping.json`, etc.) are deleted on EVERY bot startup
+- This ensures fresh start with no stale sessions from previous runs
+- Files are also deleted on shutdown for security
+- Cleanup runs BEFORE module imports to prevent singleton pre-loading stale data
