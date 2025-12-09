@@ -9,6 +9,7 @@ import time
 import hashlib
 import threading
 import httpx
+import html
 from typing import Dict, Any, Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import (
@@ -199,18 +200,19 @@ class TelegramBot:
         user = update.effective_user
         lang = get_user_language(user.id)
         
+        escaped_name = html.escape(user.first_name)
         text = f"""
-🤖 *Deriv Auto Trading Bot*
+🤖 <b>Deriv Auto Trading Bot</b>
 
-Selamat datang, {user.first_name}!
+Selamat datang, {escaped_name}!
 
 Bot ini membantu Anda trading di Deriv dengan berbagai strategi otomatis:
 
-⚡ *Terminal* - Smart Analysis 80%
-📈 *Tick Picker* - Pattern Analysis
-🔢 *DigitPad* - Digit Frequency
-📊 *AMT* - Accumulator
-🎯 *Sniper* - High Probability
+⚡ <b>Terminal</b> - Smart Analysis 80%
+📈 <b>Tick Picker</b> - Pattern Analysis
+🔢 <b>DigitPad</b> - Digit Frequency
+📊 <b>AMT</b> - Accumulator
+🎯 <b>Sniper</b> - High Probability
 
 Silakan login untuk memulai:
 """
@@ -225,7 +227,7 @@ Silakan login untuk memulai:
         
         await update.message.reply_text(
             text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
@@ -242,12 +244,15 @@ Silakan login untuk memulai:
         selected_strategy = self._user_strategies.get(user.id, "TERMINAL")
         strategy_info = STRATEGIES.get(selected_strategy, {})
         
+        escaped_currency = html.escape(currency)
+        escaped_strategy_name = html.escape(strategy_info.get('name', selected_strategy))
+        
         text = f"""
-🏠 *Menu Utama*
+🏠 <b>Menu Utama</b>
 
 👤 Account: {account_type.upper()}
-💰 Balance: {balance:.2f} {currency}
-📊 Strategy: {strategy_info.get('icon', '')} {strategy_info.get('name', selected_strategy)}
+💰 Balance: {balance:.2f} {escaped_currency}
+📊 Strategy: {strategy_info.get('icon', '')} {escaped_strategy_name}
 
 Pilih menu:
 """
@@ -278,13 +283,13 @@ Pilih menu:
         if update.message:
             await update.message.reply_text(
                 text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         elif update.callback_query:
             await update.callback_query.edit_message_text(
                 text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
@@ -293,10 +298,11 @@ Pilih menu:
         user = update.effective_user
         selected = self._user_strategies.get(user.id, "TERMINAL")
         
+        escaped_strategy_name = html.escape(STRATEGIES.get(selected, {}).get('name', selected))
         text = f"""
-📊 *Pilih Strategi Trading*
+📊 <b>Pilih Strategi Trading</b>
 
-Strategi saat ini: {STRATEGIES.get(selected, {}).get('icon', '')} {STRATEGIES.get(selected, {}).get('name', selected)}
+Strategi saat ini: {STRATEGIES.get(selected, {}).get('icon', '')} {escaped_strategy_name}
 
 Pilih strategi yang ingin digunakan:
 """
@@ -315,7 +321,7 @@ Pilih strategi yang ingin digunakan:
         
         await update.message.reply_text(
             text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
@@ -331,10 +337,12 @@ Pilih strategi yang ingin digunakan:
         strategy_info = STRATEGIES.get(selected_strategy, {})
         webapp_url = self._get_webapp_url(user.id, selected_strategy)
         
+        escaped_name = html.escape(strategy_info.get('name', ''))
+        escaped_desc = html.escape(strategy_info.get('description', ''))
         text = f"""
-🌐 *WebApp {strategy_info.get('name', '')}*
+🌐 <b>WebApp {escaped_name}</b>
 
-{strategy_info.get('icon', '')} {strategy_info.get('description', '')}
+{strategy_info.get('icon', '')} {escaped_desc}
 
 Klik tombol di bawah untuk membuka WebApp:
 """
@@ -348,7 +356,7 @@ Klik tombol di bawah untuk membuka WebApp:
         
         await update.message.reply_text(
             text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
@@ -371,8 +379,8 @@ Klik tombol di bawah untuk membuka WebApp:
         ]
         
         await update.message.reply_text(
-            "🔐 *Login ke Deriv*\n\nPilih tipe akun:",
-            parse_mode=ParseMode.MARKDOWN,
+            "🔐 <b>Login ke Deriv</b>\n\nPilih tipe akun:",
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
@@ -417,12 +425,14 @@ Klik tombol di bawah untuk membuka WebApp:
         balance = ws.get_balance()
         currency = ws.get_currency()
         
+        escaped_currency = html.escape(currency)
+        escaped_loginid = html.escape(ws.loginid or 'N/A')
         text = f"""
-👤 *Info Akun*
+👤 <b>Info Akun</b>
 
 📋 Tipe: {account_type.upper()}
-💰 Saldo: {balance:.2f} {currency}
-🆔 Login ID: {ws.loginid or 'N/A'}
+💰 Saldo: {balance:.2f} {escaped_currency}
+🆔 Login ID: {escaped_loginid}
 """
         
         keyboard = [
@@ -432,7 +442,7 @@ Klik tombol di bawah untuk membuka WebApp:
         
         await update.message.reply_text(
             text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
@@ -528,25 +538,28 @@ Klik tombol di bawah untuk memulai:"""
         tm = self._trading_managers[user.id]
         status = tm.get_status()
         
+        escaped_state = html.escape(str(status['state']))
+        escaped_symbol = html.escape(str(status['symbol']))
+        escaped_strategy = html.escape(str(status['strategy']))
         text = f"""
-📊 *Status Trading*
+📊 <b>Status Trading</b>
 
-🔄 State: {status['state']}
-💱 Symbol: {status['symbol']}
-📈 Strategi: {status['strategy']}
+🔄 State: {escaped_state}
+💱 Symbol: {escaped_symbol}
+📈 Strategi: {escaped_strategy}
 🎯 Trades: {status['session_trades']}/{status['target_trades']}
 💰 Profit: ${status['session_profit']:.2f}
 📉 Win Rate: {status['win_rate']:.1f}%
 """
         
-        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
     
     async def _cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
         text = """
-📖 *Panduan Deriv Auto Trading Bot*
+📖 <b>Panduan Deriv Auto Trading Bot</b>
 
-*Perintah:*
+<b>Perintah:</b>
 /start - Memulai bot
 /login - Login ke akun Deriv
 /logout - Keluar dari akun
@@ -560,21 +573,21 @@ Klik tombol di bawah untuk memulai:"""
 /language - Ubah bahasa
 /help - Panduan ini
 
-*Strategi Tersedia:*
+<b>Strategi Tersedia:</b>
 ⚡ Terminal - Smart Analysis 80%
 📈 Tick Picker - Pattern Analysis
 🔢 DigitPad - Digit Frequency
 📊 AMT - Accumulator
 🎯 Sniper - High Probability
 
-*Tips:*
+<b>Tips:</b>
 • Gunakan Demo account untuk testing
 • Pilih strategi sesuai gaya trading
 • Monitor win rate Anda
 • Gunakan WebApp untuk kontrol lebih
 """
         
-        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
     
     async def _cmd_pair(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /pair command"""
@@ -595,8 +608,8 @@ Klik tombol di bawah untuk memulai:"""
         keyboard.append([InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")])
         
         await update.message.reply_text(
-            "💱 *Pilih Pair Trading:*\n\n" + get_symbol_list_text(),
-            parse_mode=ParseMode.MARKDOWN,
+            "💱 <b>Pilih Pair Trading:</b>\n\n" + html.escape(get_symbol_list_text()),
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
@@ -616,8 +629,8 @@ Klik tombol di bawah untuk memulai:"""
         keyboard.append([InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")])
         
         await update.message.reply_text(
-            "🌍 *Pilih Bahasa / Select Language:*",
-            parse_mode=ParseMode.MARKDOWN,
+            "🌍 <b>Pilih Bahasa / Select Language:</b>",
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
@@ -654,11 +667,11 @@ Klik tombol di bawah untuk memulai:"""
         
         if result["success"]:
             await query.edit_message_text(
-                f"🔐 *Login {account_type.upper()}*\n\n"
+                f"🔐 <b>Login {account_type.upper()}</b>\n\n"
                 "Silakan kirim API Token Deriv Anda.\n\n"
                 "💡 Dapatkan token di: https://app.deriv.com/account/api-token\n\n"
                 "⚠️ Pesan ini akan dihapus setelah token diterima.",
-                parse_mode=ParseMode.MARKDOWN
+                parse_mode=ParseMode.HTML
             )
         else:
             if result.get("error") == "locked_out":
@@ -682,11 +695,13 @@ Klik tombol di bawah untuk memulai:"""
         strategy_info = STRATEGIES[strategy]
         webapp_url = self._get_webapp_url(user.id, strategy)
         
+        escaped_name = html.escape(strategy_info['name'])
+        escaped_desc = html.escape(strategy_info['description'])
         text = f"""
-✅ *Strategi Dipilih*
+✅ <b>Strategi Dipilih</b>
 
-{strategy_info['icon']} *{strategy_info['name']}*
-{strategy_info['description']}
+{strategy_info['icon']} <b>{escaped_name}</b>
+{escaped_desc}
 
 Klik tombol di bawah untuk membuka WebApp atau mulai trading:
 """
@@ -702,7 +717,7 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         
         await query.edit_message_text(
             text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
@@ -713,10 +728,12 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         
         config = get_symbol_config(symbol)
         
+        escaped_symbol = html.escape(symbol)
+        escaped_config_name = html.escape(config.name) if config else ''
         await query.edit_message_text(
-            f"✅ *Pair Dipilih: {symbol}*\n{config.name if config else ''}\n\n"
+            f"✅ <b>Pair Dipilih: {escaped_symbol}</b>\n{escaped_config_name}\n\n"
             "Gunakan /autotrade untuk mulai trading.",
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 Menu Utama", callback_data="menu_main")]
             ])
@@ -750,7 +767,7 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         elif menu == "strategy":
             selected = self._user_strategies.get(user.id, "TERMINAL")
             
-            text = "📊 *Pilih Strategi Trading:*\n\n"
+            text = "📊 <b>Pilih Strategi Trading:</b>\n\n"
             keyboard = []
             
             for key, info in STRATEGIES.items():
@@ -766,7 +783,7 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             
             await query.edit_message_text(
                 text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         
@@ -788,8 +805,8 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             keyboard.append([InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")])
             
             await query.edit_message_text(
-                "💱 *Pilih Pair Trading:*",
-                parse_mode=ParseMode.MARKDOWN,
+                "💱 <b>Pilih Pair Trading:</b>",
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         
@@ -813,13 +830,15 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
                 tm = self._trading_managers[user.id]
                 status = tm.get_status()
                 
+                escaped_state = html.escape(str(status['state']))
+                escaped_symbol = html.escape(str(status['symbol']))
                 await query.edit_message_text(
-                    f"📊 *Status Trading*\n\n"
-                    f"🔄 State: {status['state']}\n"
-                    f"💱 Symbol: {status['symbol']}\n"
+                    f"📊 <b>Status Trading</b>\n\n"
+                    f"🔄 State: {escaped_state}\n"
+                    f"💱 Symbol: {escaped_symbol}\n"
                     f"🎯 Trades: {status['session_trades']}/{status['target_trades']}\n"
                     f"💰 Profit: ${status['session_profit']:.2f}",
-                    parse_mode=ParseMode.MARKDOWN,
+                    parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("⏹️ Stop Trading", callback_data="confirm_stop_trading")],
                         [InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")]
@@ -841,12 +860,14 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             balance = ws.get_balance()
             currency = ws.get_currency()
             
+            escaped_currency = html.escape(currency)
+            escaped_loginid = html.escape(ws.loginid or 'N/A')
             await query.edit_message_text(
-                f"👤 *Info Akun*\n\n"
+                f"👤 <b>Info Akun</b>\n\n"
                 f"📋 Tipe: {account_type.upper()}\n"
-                f"💰 Saldo: {balance:.2f} {currency}\n"
-                f"🆔 Login ID: {ws.loginid or 'N/A'}",
-                parse_mode=ParseMode.MARKDOWN,
+                f"💰 Saldo: {balance:.2f} {escaped_currency}\n"
+                f"🆔 Login ID: {escaped_loginid}",
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔄 Switch Account", callback_data="switch_account")],
                     [InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")]
@@ -868,20 +889,20 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             keyboard.append([InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")])
             
             await query.edit_message_text(
-                "🌍 *Pilih Bahasa:*",
-                parse_mode=ParseMode.MARKDOWN,
+                "🌍 <b>Pilih Bahasa:</b>",
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         
         elif menu == "help":
             await query.edit_message_text(
-                "📖 *Panduan*\n\n"
+                "📖 <b>Panduan</b>\n\n"
                 "1. Login dengan /login\n"
                 "2. Pilih strategi dengan /strategi\n"
                 "3. Buka WebApp atau mulai /autotrade\n"
                 "4. Monitor dengan /status\n\n"
                 "Gunakan /help untuk panduan lengkap.",
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")]
                 ])
@@ -952,8 +973,8 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         ]
         
         await query.edit_message_text(
-            "🔐 *Login ke Deriv*\n\nPilih tipe akun:",
-            parse_mode=ParseMode.MARKDOWN,
+            "🔐 <b>Login ke Deriv</b>\n\nPilih tipe akun:",
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
@@ -978,11 +999,12 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
                 
                 if connected:
                     ws = self._ws_connections[user.id]
+                    escaped_currency = html.escape(ws.get_currency())
                     await update.effective_chat.send_message(
-                        f"✅ *Login Berhasil!*\n\n"
+                        f"✅ <b>Login Berhasil!</b>\n\n"
                         f"📋 Tipe: {result['account_type'].upper()}\n"
-                        f"💰 Saldo: {ws.get_balance():.2f} {ws.get_currency()}",
-                        parse_mode=ParseMode.MARKDOWN
+                        f"💰 Saldo: {ws.get_balance():.2f} {escaped_currency}",
+                        parse_mode=ParseMode.HTML
                     )
                     
                     # Set default strategy

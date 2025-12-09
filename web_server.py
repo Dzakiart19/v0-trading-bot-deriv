@@ -463,8 +463,40 @@ async def get_user_strategy(token: str = Query(...)):
 async def telegram_set_strategy(telegram_id: int = Query(...), strategy: str = Query(...)):
     """Set strategy from Telegram bot - no session required"""
     session_manager.set_strategy(telegram_id, strategy)
+    
+    strategy_routes = {
+        "TERMINAL": "/terminal",
+        "TICK_PICKER": "/tick-picker",
+        "DIGITPAD": "/digitpad",
+        "AMT": "/amt",
+        "SNIPER": "/sniper",
+        "LDP": "/digitpad",
+        "MULTI_INDICATOR": "/terminal"
+    }
+    route = strategy_routes.get(strategy, "/terminal")
+    
     logger.info(f"Strategy set via Telegram for user {telegram_id}: {strategy}")
-    return {"success": True, "telegram_id": telegram_id, "strategy": strategy}
+    return {"success": True, "telegram_id": telegram_id, "strategy": strategy, "route": route}
+
+@app.get("/api/telegram/get-strategy")
+async def telegram_get_strategy(telegram_id: int = Query(...)):
+    """Get strategy and route for a telegram user"""
+    strategy = session_manager.get_strategy(telegram_id)
+    
+    strategy_routes = {
+        "TERMINAL": "/terminal",
+        "TICK_PICKER": "/tick-picker",
+        "DIGITPAD": "/digitpad",
+        "AMT": "/amt",
+        "SNIPER": "/sniper",
+        "LDP": "/digitpad",
+        "MULTI_INDICATOR": "/terminal"
+    }
+    
+    if strategy:
+        route = strategy_routes.get(strategy, "/terminal")
+        return {"strategy": strategy, "route": route}
+    return {"strategy": None, "route": None}
 
 @app.post("/api/user/strategy")
 async def set_user_strategy(token: str = Query(...), strategy: str = Query(...)):

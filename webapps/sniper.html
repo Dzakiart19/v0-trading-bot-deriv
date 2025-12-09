@@ -753,6 +753,30 @@
             setTimeout(() => ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 })), 500);
         }
         
+        // Check if user should be redirected to a different strategy page
+        async function checkStrategyRedirect() {
+            const tg = window.Telegram?.WebApp;
+            const tgUser = tg?.initDataUnsafe?.user;
+            
+            if (tgUser?.id) {
+                try {
+                    const resp = await fetch(`/api/telegram/get-strategy?telegram_id=${tgUser.id}`);
+                    const data = await resp.json();
+                    
+                    if (data.strategy && data.route) {
+                        const currentPath = window.location.pathname;
+                        if (!currentPath.includes(data.route.replace('/', ''))) {
+                            window.location.href = data.route;
+                            return true;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to check strategy:', e);
+                }
+            }
+            return false;
+        }
+        
         // Initialize with Telegram token check (secured with initData)
         async function initPage() {
             updateButtonState();
@@ -761,6 +785,12 @@
                 const tg = window.Telegram.WebApp;
                 tg.expand();
                 tg.ready();
+                
+                // Check for strategy redirect before proceeding
+                if (await checkStrategyRedirect()) {
+                    return;
+                }
+                
                 const initData = tg.initData;
                 
                 if (initData) {

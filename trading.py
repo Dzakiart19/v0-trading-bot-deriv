@@ -425,6 +425,8 @@ class TradingManager:
             )
             if valid_duration:
                 duration, duration_unit = valid_duration
+            else:
+                duration, duration_unit = get_default_duration(self.config.symbol)
             
             # Place the trade
             self.pending_result = True

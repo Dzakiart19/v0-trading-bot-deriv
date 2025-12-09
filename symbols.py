@@ -170,23 +170,25 @@ def get_all_symbols() -> List[str]:
     """Get all available symbols"""
     return list(SYMBOLS.keys())
 
-def validate_duration_for_symbol(symbol: str, duration: int, unit: str) -> bool:
-    """Validate if duration is compatible with symbol"""
+def validate_duration_for_symbol(symbol: str, duration: int, unit: str) -> Optional[tuple]:
+    """Validate if duration is compatible with symbol. Returns (duration, unit) tuple if valid, None otherwise"""
     config = get_symbol_config(symbol)
     if not config:
-        return False
+        return None
     
     if unit == 't' and not config.supports_ticks:
-        return False
+        return None
     if unit == 'm' and not config.supports_minutes:
-        return False
+        return None
     if unit == 'd' and not config.supports_days:
-        return False
+        return None
     
     if unit == config.duration_unit:
-        return config.min_duration <= duration <= config.max_duration
+        if config.min_duration <= duration <= config.max_duration:
+            return (duration, unit)
+        return (config.min_duration, config.duration_unit)
     
-    return True
+    return (duration, unit)
 
 def get_symbol_list_text() -> str:
     """Generate formatted symbol list for display"""
