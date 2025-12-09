@@ -388,6 +388,14 @@ Klik tombol di bawah untuk membuka WebApp:
             self._ws_connections[user.id].disconnect()
             del self._ws_connections[user.id]
         
+        # Clear session_manager data
+        try:
+            from web_server import session_manager, unregister_deriv_connection
+            session_manager.clear_user_data(user.id)
+            unregister_deriv_connection(user.id)
+        except Exception as e:
+            logger.error(f"Failed to clear session_manager for user {user.id}: {e}")
+        
         user_auth.logout(user.id)
         
         await update.message.reply_text("✅ Berhasil logout. Sampai jumpa!")
@@ -892,6 +900,14 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
                 self._ws_connections[user.id].disconnect()
                 del self._ws_connections[user.id]
             
+            # Clear session_manager data
+            try:
+                from web_server import session_manager, unregister_deriv_connection
+                session_manager.clear_user_data(user.id)
+                unregister_deriv_connection(user.id)
+            except Exception as e:
+                logger.error(f"Failed to clear session_manager: {e}")
+            
             user_auth.logout(user.id)
             
             await query.edit_message_text("✅ Berhasil logout. Sampai jumpa!")
@@ -917,6 +933,14 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         if user.id in self._ws_connections:
             self._ws_connections[user.id].disconnect()
             del self._ws_connections[user.id]
+        
+        # Clear session_manager data
+        try:
+            from web_server import session_manager, unregister_deriv_connection
+            session_manager.clear_user_data(user.id)
+            unregister_deriv_connection(user.id)
+        except Exception as e:
+            logger.error(f"Failed to clear session_manager: {e}")
         
         user_auth.logout(user.id)
         
@@ -1007,12 +1031,25 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             # Store connection
             self._ws_connections[user_id] = ws
             
-            # Register with web server
+            # Register with web server and sync to session_manager
             try:
-                from web_server import register_deriv_connection
+                from web_server import register_deriv_connection, session_manager
                 register_deriv_connection(user_id, ws)
-            except:
-                pass
+                
+                # Sync Deriv token to session_manager for WebApp auto-connect
+                session_manager.set_deriv_token(user_id, token)
+                
+                # Sync account info
+                account_data = {
+                    "balance": ws.get_balance() if hasattr(ws, 'get_balance') else 0,
+                    "currency": ws.get_currency() if hasattr(ws, 'get_currency') else "USD",
+                    "loginid": ws.loginid if hasattr(ws, 'loginid') else "",
+                    "account_type": ws.account_type if hasattr(ws, 'account_type') else "demo"
+                }
+                session_manager.set_deriv_account(user_id, account_data)
+                logger.info(f"Synced Deriv token and account to session_manager for user {user_id}")
+            except Exception as sync_error:
+                logger.error(f"Failed to sync to session_manager: {sync_error}")
             
             logger.info(f"User {user_id} connected to Deriv")
             return True

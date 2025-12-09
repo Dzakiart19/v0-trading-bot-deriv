@@ -53,6 +53,9 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
 
 ## Recent Changes
+- 2025-12-09: Fixed WebApp auto-connect issue - now syncs Deriv token and account info to session_manager when login via Telegram bot
+- 2025-12-09: Added `clear_user_data()` helper to WebSessionManager for centralized cleanup on logout
+- 2025-12-09: Logout handlers now properly clear session_manager data to prevent stale sessions
 - 2024-12-09: Fixed security issues in sync endpoints - now require valid session token
 - 2024-12-09: Added sessionValidated flag for secure Telegram authentication
 - 2024-12-09: Cleaned web_server.py - removed duplicate routes, serve HTML from webapps/

@@ -147,6 +147,16 @@ class WebSessionManager:
         session = self.sessions.pop(token, None)
         if session:
             self.telegram_to_session.pop(session.get("telegram_id"), None)
+    
+    def clear_user_data(self, telegram_id: int):
+        """Clear all user data from session manager - used on logout"""
+        self.deriv_tokens.pop(telegram_id, None)
+        self.deriv_accounts.pop(telegram_id, None)
+        self.user_strategy.pop(telegram_id, None)
+        # Also clear session if exists
+        token = self.telegram_to_session.pop(telegram_id, None)
+        if token:
+            self.sessions.pop(token, None)
 
 
 # ==================== Global State ====================
