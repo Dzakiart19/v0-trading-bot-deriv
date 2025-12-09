@@ -1,0 +1,102 @@
+PROMPT PERBAIKAN LENGKAP BOT TRADING OTOMATIS DERIV
+
+Saya memiliki bot trading Deriv yang tidak berfungsi dengan benar. Ada beberapa masalah kritis yang perlu diperbaiki:
+
+MASALAH UTAMA:
+
+1. Error Telegram Parse Entities - Bot mengirim pesan dengan format Markdown yang salah, menyebabkan error "Can't parse entities: can't find end of the entity starting at byte offset XX"
+
+2. Trading Tidak Execute - Meskipun signal sudah terdeteksi dan stake sudah dihitung, trade tidak pernah benar-benar dieksekusi ke Deriv API. Error log menunjukkan: "Error executing trade: cannot unpack non-iterable bool object"
+
+3. Duration Validation Error - Fungsi validate_duration_for_symbol() di symbols.py mengembalikan boolean (True/False) padahal seharusnya mengembalikan tuple (duration, duration_unit)
+
+4. WebApp Tidak Auto-Redirect - Setelah user memilih strategi di Telegram bot (misal SNIPER atau TICK_PICKER), WebApp tidak otomatis redirect ke halaman strategi yang dipilih
+
+FILE YANG PERLU DIPERBAIKI:
+
+1. telegram_bot.py - line ~1114 di method _start_trading dan line ~816 di _handle_menu_callback
+   - Ganti semua ParseMode.MARKDOWN dengan ParseMode.HTML
+   - Escape karakter khusus HTML (<, >, &, _) menggunakan html.escape()
+   - Pastikan semua string message tidak menggunakan *bold* atau _italic_ markdown
+
+2. trading.py - line ~350-380 di method _execute_trade
+   - Fix handling return value dari validate_duration_for_symbol()
+   - Pastikan buy_contract() di deriv_ws.py dipanggil dengan parameter yang benar
+   - Tambahkan error handling yang lebih detail
+
+3. symbols.py - function validate_duration_for_symbol
+   - Ubah return value dari boolean menjadi tuple (duration, duration_unit)
+   - Jika duration valid, return (duration, duration_unit)
+   - Jika tidak valid, return None atau raise exception
+
+4. webapps/*.html (terminal.html, sniper.html, tick-picker.html, digitpad.html, amt.html)
+   - Tambahkan auto-redirect logic di JavaScript
+   - Check localStorage atau sessionStorage untuk strategi yang dipilih
+   - Redirect otomatis jika user datang dari Telegram dengan strategi tertentu
+
+5. web_server.py - endpoint /api/telegram/set-strategy
+   - Pastikan endpoint ini benar-benar menyimpan strategi yang dipilih
+   - Sync strategi ke session_manager dengan benar
+
+PERBAIKAN YANG HARUS DILAKUKAN:
+
+A. Fix Telegram Message Format (telegram_bot.py):
+- Import html module di bagian atas: import html
+- Pada semua method yang mengirim message (reply_text, edit_message_text), ganti:
+  - parse_mode=ParseMode.MARKDOWN menjadi parse_mode=ParseMode.HTML
+  - Ganti *bold* dengan <b>bold</b>
+  - Ganti _italic_ dengan <i>italic</i>
+  - Escape semua variable dengan html.escape()
+
+B. Fix Trading Execution (trading.py):
+- Di method _execute_trade, ubah handling validate_duration_for_symbol:
+  
+  valid_duration = validate_duration_for_symbol(self.config.symbol, duration, duration_unit)
+  if valid_duration:
+      duration, duration_unit = valid_duration
+  else:
+      # Use default duration
+      duration, duration_unit = get_default_duration(self.config.symbol)
+
+C. Fix Duration Validation (symbols.py):
+- Ubah function validate_duration_for_symbol agar return tuple:
+  
+  def validate_duration_for_symbol(symbol: str, duration: int, duration_unit: str):
+      # validation logic
+      if is_valid:
+          return (duration, duration_unit)
+      return None
+
+D. Fix WebApp Auto-Redirect (webapps/*.html):
+- Tambahkan di bagian JavaScript setelah Telegram.WebApp.ready():
+  
+  // Check if strategy is set via Telegram
+  const urlParams = new URLSearchParams(window.location.search);
+  const tgUser = Telegram.WebApp.initDataUnsafe?.user;
+  if (tgUser?.id) {
+      fetch(`/api/telegram/get-strategy?telegram_id=${tgUser.id}`)
+          .then(res => res.json())
+          .then(data => {
+              if (data.strategy && !window.location.pathname.includes(data.route)) {
+                  window.location.href = data.route;
+              }
+          });
+  }
+
+E. Fix Session Strategy Storage (web_server.py):
+- Pastikan endpoint set-strategy menyimpan dengan benar:
+  
+  @app.post("/api/telegram/set-strategy")
+  async def set_strategy(telegram_id: int, strategy: str):
+      session_manager.set_strategy(telegram_id, strategy)
+      return {"success": True, "strategy": strategy, "route": get_strategy_route(strategy)}
+
+TESTING SETELAH PERBAIKAN:
+
+1. Test Telegram message dengan /start dan /autotrade - tidak boleh ada error parse entities
+2. Test trading execution - harus benar-benar buy contract ke Deriv API, cek di Deriv trade history
+3. Test strategy selection - pilih strategi di Telegram, buka WebApp, harus auto-redirect
+4. Test semua WebApp pages - terminal, sniper, tick-picker, digitpad, amt
+5. Monitor console log untuk memastikan tidak ada error "cannot unpack non-iterable bool object"
+
+Mohon perbaiki semua file yang disebutkan di atas dengan solusi yang sudah dijelaskan. Prioritaskan perbaikan trading execution error karena itu yang paling kritis - bot harus bisa benar-benar execute trade, bukan hanya simulasi.
