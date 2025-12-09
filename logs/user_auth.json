@@ -1,0 +1,13 @@
+{
+  "sessions": {
+    "7873001910": {
+      "user_id": 7873001910,
+      "token_encrypted": "Z0FBQUFBQnBPRS1EZjFBeXBEM284Q0ZjLTltZ0RKVVRWN1VyTUNCQTlaZzNRNU9PS0ZNUWhsSlVIRmdlZmdsXzRvVjNHQ0VJMWVHT2pCbTlDcG5zSmxIMlFxN2tQYzVQaXc9PQ==",
+      "token_fingerprint": "25ad422b4c63f2cd6ff03c271f295e4e9c7162f355b47f9fd971338d630fb180",
+      "account_type": "demo",
+      "language": "id",
+      "login_time": 1765298051.3073716,
+      "last_activity": 1765298051.3073719
+    }
+  }
+}

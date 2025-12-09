@@ -146,7 +146,7 @@ class DerivWebSocket:
                 if self.ws is None:
                     logger.error("WebSocket is None, cannot run")
                     break
-                self.ws.run_forever(ping_interval=30, ping_timeout=10)
+                self.ws.run_forever()  # No built-in ping - we handle it ourselves
             except Exception as e:
                 logger.error(f"WebSocket run error: {e}")
                 self._connection_error = str(e)
@@ -206,15 +206,29 @@ class DerivWebSocket:
             msg_type = data.get("msg_type")
             req_id = data.get("req_id")
             
+            # Log all messages for debugging (except high-frequency ticks)
+            if msg_type != "tick":
+                logger.info(f"<<< Received msg_type={msg_type}, req_id={req_id}")
+                # Log any errors in the response
+                if "error" in data:
+                    logger.error(f"<<< ERROR in response: {data['error']}")
+            
             # Handle request responses - ensure req_id type matches (convert to int)
             if req_id is not None:
                 req_id_int = int(req_id) if isinstance(req_id, str) else req_id
+                
+                # Log all proposal/buy responses for debugging
+                if msg_type in ("proposal", "buy"):
+                    logger.info(f">>> Received {msg_type} response with req_id {req_id_int}")
+                
                 if req_id_int in self._response_events:
                     self._responses[req_id_int] = data
                     self._response_events[req_id_int].set()
-                    logger.debug(f"Response received for req_id {req_id_int}: {msg_type}")
+                    logger.info(f"Response matched for req_id {req_id_int}: {msg_type}")
                 elif msg_type in ("proposal", "buy"):
-                    logger.warning(f"Response for {msg_type} with req_id {req_id_int} has no pending event (waiting: {list(self._response_events.keys())})")
+                    # Store response anyway - might be late arrival from retry
+                    self._responses[req_id_int] = data
+                    logger.warning(f"Late response for {msg_type} with req_id {req_id_int} (waiting: {list(self._response_events.keys())})")
             
             # Handle specific message types
             if msg_type == "authorize":
@@ -452,6 +466,8 @@ class DerivWebSocket:
     def _send_and_wait(self, data: dict, timeout: float = 10, retries: int = 0) -> Optional[dict]:
         """Send message and wait for response with retry support and metric tracking
         
+        Uses a shared event across all retry attempts to handle delayed responses.
+        
         Args:
             data: Message data to send
             timeout: Timeout per attempt (default 10s per Deriv best practices)
@@ -464,34 +480,68 @@ class DerivWebSocket:
         max_attempts = retries + 1
         last_error = None
         
-        for attempt in range(max_attempts):
-            # Check connection before each attempt
-            if not self.connected or not self.ws:
-                logger.error("Connection lost during request")
-                return None
-            
-            req_id = self._get_request_id()
-            data_copy = data.copy()
-            data_copy["req_id"] = req_id
-            
-            event = threading.Event()
-            self._response_events[req_id] = event
-            self._total_requests += 1
-            
-            try:
-                start_time = time.time()
-                self.ws.send(json.dumps(data_copy))
+        # Use a single shared event and collect all req_ids for this operation
+        shared_event = threading.Event()
+        all_req_ids = []
+        response_holder = {"data": None, "req_id": None}
+        
+        def create_response_handler(rid):
+            """Create a handler that sets shared event when any req_id responds"""
+            def handler():
+                if rid in self._responses:
+                    response_holder["data"] = self._responses.get(rid)
+                    response_holder["req_id"] = rid
+                    shared_event.set()
+            return handler
+        
+        try:
+            for attempt in range(max_attempts):
+                # Check connection before each attempt
+                if not self.connected or not self.ws:
+                    logger.error("Connection lost during request")
+                    return None
                 
-                if event.wait(timeout):
-                    response = self._responses.pop(req_id, None)
-                    elapsed = time.time() - start_time
-                    logger.debug(f"Request completed in {elapsed:.2f}s: {list(data.keys())}")
-                    
+                # Check if we already got a response from previous attempt
+                if shared_event.is_set() and response_holder["data"] is not None:
+                    logger.info(f"Received delayed response from req_id {response_holder['req_id']}")
                     self._successful_requests += 1
                     self._last_successful_request = time.time()
                     self._consecutive_timeouts = 0
-                    return response
-                else:
+                    return response_holder["data"]
+                
+                req_id = self._get_request_id()
+                all_req_ids.append(req_id)
+                data_copy = data.copy()
+                data_copy["req_id"] = req_id
+                
+                # Register event for this req_id
+                self._response_events[req_id] = shared_event
+                self._total_requests += 1
+                
+                try:
+                    start_time = time.time()
+                    self.ws.send(json.dumps(data_copy))
+                    logger.debug(f"Sent request with req_id {req_id}: {list(data.keys())}")
+                    
+                    # Wait for response
+                    if shared_event.wait(timeout):
+                        # Check all our req_ids for the response
+                        for rid in all_req_ids:
+                            if rid in self._responses:
+                                response = self._responses.pop(rid, None)
+                                if response:
+                                    elapsed = time.time() - start_time
+                                    logger.debug(f"Request completed in {elapsed:.2f}s (req_id {rid}): {list(data.keys())}")
+                                    self._successful_requests += 1
+                                    self._last_successful_request = time.time()
+                                    self._consecutive_timeouts = 0
+                                    return response
+                        
+                        # Event was set but no response found - check holder
+                        if response_holder["data"]:
+                            return response_holder["data"]
+                    
+                    # Timeout
                     elapsed = time.time() - start_time
                     last_error = f"Request timeout ({elapsed:.1f}s) for: {list(data.keys())}"
                     logger.warning(f"Attempt {attempt + 1}/{max_attempts}: {last_error}")
@@ -503,33 +553,37 @@ class DerivWebSocket:
                     if self._consecutive_timeouts >= 5:
                         logger.warning("Multiple consecutive timeouts - connection may be degraded")
                         self._trigger_reconnect()
+                        return None
                     
                     if attempt < max_attempts - 1:
-                        # Exponential backoff with jitter
+                        # Short delay before retry - don't sleep too long
                         import random
-                        base_delay = min(2 ** attempt, 4)
-                        jitter = random.uniform(0.1, 0.5)
-                        delay = base_delay + jitter
+                        delay = 0.5 + random.uniform(0.1, 0.3)
                         logger.info(f"Retrying in {delay:.1f}s...")
                         time.sleep(delay)
+                        shared_event.clear()  # Reset event for next attempt
+                        
+                except Exception as e:
+                    last_error = str(e)
+                    logger.error(f"Send and wait error (attempt {attempt + 1}): {e}")
+                    self._timeout_count += 1
+                    self._consecutive_timeouts += 1
                     
-            except Exception as e:
-                last_error = str(e)
-                logger.error(f"Send and wait error (attempt {attempt + 1}): {e}")
-                self._timeout_count += 1
-                self._consecutive_timeouts += 1
-                
-                if attempt < max_attempts - 1:
-                    import random
-                    delay = min(2 ** attempt, 4) + random.uniform(0.1, 0.5)
-                    time.sleep(delay)
-            finally:
-                self._response_events.pop(req_id, None)
-                self._responses.pop(req_id, None)
-        
-        if last_error:
-            logger.error(f"All {max_attempts} attempts failed: {last_error}")
-        return None
+                    if attempt < max_attempts - 1:
+                        import random
+                        delay = 0.5 + random.uniform(0.1, 0.3)
+                        time.sleep(delay)
+                        shared_event.clear()
+            
+            if last_error:
+                logger.error(f"All {max_attempts} attempts failed: {last_error}")
+            return None
+            
+        finally:
+            # Cleanup all registered events
+            for rid in all_req_ids:
+                self._response_events.pop(rid, None)
+                self._responses.pop(rid, None)
     
     def _trigger_reconnect(self):
         """Trigger reconnection when connection is degraded"""
@@ -752,14 +806,15 @@ class DerivWebSocket:
             return None
         
         # Build contract parameters
+        # Use integer amount for more reliable API response
         parameters = {
             "contract_type": contract_type,
             "symbol": symbol,
-            "duration": duration,
+            "duration": int(duration),
             "duration_unit": duration_unit,
             "currency": self.currency,
             "basis": "stake",
-            "amount": stake
+            "amount": round(float(stake), 2)
         }
         
         if barrier is not None:
@@ -772,9 +827,19 @@ class DerivWebSocket:
         
         # Get proposal with retry mechanism
         logger.info(f"Getting proposal for {contract_type} on {symbol}")
-        proposal_req = {"proposal": 1, **parameters}
         
-        proposal_resp = self._send_and_wait(proposal_req, timeout=20, retries=2)
+        # Quick ping test before proposal to verify connection
+        ping_resp = self._send_and_wait({"ping": 1}, timeout=5, retries=0)
+        if not ping_resp:
+            logger.error("Pre-proposal ping failed - connection may be dead")
+            self._trigger_reconnect()
+            return None
+        logger.info("Pre-proposal ping OK - connection alive")
+        
+        proposal_req = {"proposal": 1, **parameters}
+        logger.info(f"Proposal request: {proposal_req}")
+        
+        proposal_resp = self._send_and_wait(proposal_req, timeout=30, retries=2)
         
         if not proposal_resp:
             logger.error(f"Proposal timeout (consecutive: {self._consecutive_timeouts})")
@@ -802,7 +867,7 @@ class DerivWebSocket:
         buy_resp = self._send_and_wait({
             "buy": proposal_id,
             "price": stake
-        }, timeout=20, retries=1)
+        }, timeout=30, retries=1)
         
         if buy_resp and "buy" in buy_resp:
             buy_data = buy_resp["buy"]
