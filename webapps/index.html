@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Deriv Trading Bot - WebApps</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -105,6 +106,9 @@
             cursor: not-allowed;
             transform: none;
         }
+        .login-btn.connected {
+            background: linear-gradient(135deg, var(--accent-green), #1a5a2a);
+        }
         .account-info {
             display: none;
             padding: 16px;
@@ -141,6 +145,10 @@
             transform: translateY(-4px);
             box-shadow: 0 8px 30px rgba(88, 166, 255, 0.15);
         }
+        .strategy-card.selected {
+            border-color: var(--accent-green);
+            box-shadow: 0 0 20px rgba(57, 211, 83, 0.2);
+        }
         .strategy-card .icon {
             width: 48px;
             height: 48px;
@@ -175,6 +183,19 @@
             font-weight: 600;
             margin-top: 12px;
         }
+        .info-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 20px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+        .info-box.success {
+            border-color: var(--accent-green);
+            background: rgba(57, 211, 83, 0.1);
+        }
     </style>
 </head>
 <body>
@@ -182,6 +203,10 @@
         <div class="header">
             <h1>Deriv Trading Bot</h1>
             <p>Pilih strategi trading dan mulai auto trading</p>
+        </div>
+
+        <div id="telegram-info" class="info-box" style="display: none;">
+            Login via Telegram bot terdeteksi. Akun Deriv Anda sudah terkoneksi.
         </div>
 
         <div class="login-section">
@@ -196,7 +221,7 @@
                 <div class="status-dot" id="statusDot"></div>
                 <div>
                     <div id="statusText">Not Connected</div>
-                    <div style="color: var(--text-secondary); font-size: 0.85rem;" id="statusSubtext">Login to start trading</div>
+                    <div style="color: var(--text-secondary); font-size: 0.85rem;" id="statusSubtext">Login via Telegram bot atau klik tombol di bawah</div>
                 </div>
             </div>
             <button class="login-btn" id="loginBtn" onclick="loginDeriv()">
@@ -218,31 +243,31 @@
 
         <h2 style="margin-bottom: 20px; font-size: 1.2rem;">Pilih Strategi</h2>
         <div class="strategies-grid">
-            <a href="terminal.html" class="strategy-card terminal">
+            <a href="/terminal" class="strategy-card terminal" data-strategy="TERMINAL">
                 <div class="icon">📊</div>
                 <h3>Terminal</h3>
                 <p>Smart Analysis dengan multiple indicators untuk prediksi akurat</p>
                 <span class="win-rate">80%+ Win Rate</span>
             </a>
-            <a href="tick-picker.html" class="strategy-card tick-picker">
+            <a href="/tick-picker" class="strategy-card tick-picker" data-strategy="TICK_PICKER">
                 <div class="icon">📈</div>
                 <h3>Tick Picker</h3>
                 <p>Analisis pattern tick real-time untuk Rise/Fall prediction</p>
                 <span class="win-rate">75%+ Win Rate</span>
             </a>
-            <a href="digitpad.html" class="strategy-card digitpad">
+            <a href="/digitpad" class="strategy-card digitpad" data-strategy="DIGITPAD">
                 <div class="icon">🔢</div>
                 <h3>DigitPad</h3>
                 <p>Digit frequency heatmap untuk Digit Matches/Differs</p>
                 <span class="win-rate">78%+ Win Rate</span>
             </a>
-            <a href="amt.html" class="strategy-card amt">
+            <a href="/amt" class="strategy-card amt" data-strategy="AMT">
                 <div class="icon">📉</div>
                 <h3>AMT Accumulator</h3>
                 <p>Growth rate tracking dengan accumulator contracts</p>
                 <span class="win-rate">70%+ Win Rate</span>
             </a>
-            <a href="sniper.html" class="strategy-card sniper">
+            <a href="/sniper" class="strategy-card sniper" data-strategy="SNIPER">
                 <div class="icon">🎯</div>
                 <h3>Sniper</h3>
                 <p>High probability entries only, precision trading</p>
@@ -252,13 +277,94 @@
     </div>
 
     <script>
-        const DERIV_APP_ID = 1089;
-        const DERIV_OAUTH_URL = `https://oauth.deriv.com/oauth2/authorize?app_id=${DERIV_APP_ID}&l=EN&brand=deriv`;
+        const tg = window.Telegram?.WebApp;
+        if (tg) {
+            tg.expand();
+            tg.ready();
+        }
         
+        const tgUser = tg?.initDataUnsafe?.user;
+        const telegramId = tgUser?.id;
+        
+        let DERIV_APP_ID = '1089';
         let ws = null;
         let authToken = localStorage.getItem('deriv_token');
+        let currentStrategy = null;
+        
+        const API_BASE = window.location.origin;
+        
+        async function init() {
+            await getDerivAppId();
+            
+            if (telegramId) {
+                const connected = await checkTelegramLogin();
+                if (connected) {
+                    document.getElementById('telegram-info').style.display = 'block';
+                    document.getElementById('telegram-info').classList.add('success');
+                    document.getElementById('telegram-info').textContent = 'Login via Telegram bot berhasil! Akun Deriv sudah terkoneksi.';
+                    return;
+                }
+            }
+            
+            if (authToken) {
+                connectWebSocket();
+            }
+        }
+        
+        async function getDerivAppId() {
+            try {
+                const resp = await fetch(API_BASE + '/api/deriv/app-id');
+                const data = await resp.json();
+                DERIV_APP_ID = data.app_id || '1089';
+            } catch (e) {
+                console.error('Failed to get app id:', e);
+            }
+        }
+        
+        async function checkTelegramLogin() {
+            if (!telegramId) return false;
+            
+            try {
+                const resp = await fetch(API_BASE + '/api/telegram/check-login?telegram_id=' + telegramId);
+                const data = await resp.json();
+                
+                if (data.logged_in && data.connected) {
+                    currentStrategy = data.strategy;
+                    showConnected(data.balance, data.currency, data.loginid, data.account_type);
+                    highlightStrategy(data.strategy);
+                    return true;
+                }
+                return false;
+            } catch (e) {
+                console.error('Check login error:', e);
+                return false;
+            }
+        }
+        
+        function highlightStrategy(strategy) {
+            document.querySelectorAll('.strategy-card').forEach(card => {
+                card.classList.remove('selected');
+                if (card.dataset.strategy === strategy) {
+                    card.classList.add('selected');
+                }
+            });
+        }
+        
+        function showConnected(balance, currency, loginid, accountType) {
+            document.getElementById('statusDot').classList.add('connected');
+            document.getElementById('statusText').textContent = 'Connected';
+            document.getElementById('statusSubtext').textContent = loginid || 'Connected';
+            document.getElementById('loginBtn').textContent = '✓ Connected (' + (accountType || 'DEMO').toUpperCase() + ')';
+            document.getElementById('loginBtn').disabled = true;
+            document.getElementById('loginBtn').classList.add('connected');
+            document.getElementById('accountInfo').classList.add('show');
+            document.getElementById('balanceText').textContent = '$' + parseFloat(balance || 0).toFixed(2);
+            document.getElementById('accountId').textContent = loginid || '-';
+        }
         
         function loginDeriv() {
+            const DERIV_OAUTH_URL = `https://oauth.deriv.com/oauth2/authorize?app_id=${DERIV_APP_ID}&l=EN&brand=deriv`;
+            
             const width = 600;
             const height = 700;
             const left = (window.innerWidth - width) / 2;
@@ -270,7 +376,6 @@
                 `width=${width},height=${height},left=${left},top=${top}`
             );
             
-            // Listen for OAuth callback
             window.addEventListener('message', handleOAuthMessage);
         }
         
@@ -281,10 +386,15 @@
                 authToken = event.data.token;
                 localStorage.setItem('deriv_token', authToken);
                 connectWebSocket();
+                
+                if (telegramId) {
+                    fetch(API_BASE + '/api/telegram/sync-deriv-token?telegram_id=' + telegramId + '&token=' + authToken, {
+                        method: 'POST'
+                    });
+                }
             }
         }
         
-        // Check URL for OAuth callback
         function checkOAuthCallback() {
             const urlParams = new URLSearchParams(window.location.search);
             const token1 = urlParams.get('token1');
@@ -295,13 +405,17 @@
                 localStorage.setItem('deriv_token', token1);
                 if (acct1) localStorage.setItem('deriv_account', acct1);
                 
-                // Clean URL
                 window.history.replaceState({}, document.title, window.location.pathname);
                 
-                // Notify parent window if in popup
                 if (window.opener) {
                     window.opener.postMessage({ token: token1, account: acct1 }, '*');
                     window.close();
+                }
+                
+                if (telegramId) {
+                    fetch(API_BASE + '/api/telegram/sync-deriv-token?telegram_id=' + telegramId + '&token=' + token1, {
+                        method: 'POST'
+                    });
                 }
                 
                 connectWebSocket();
@@ -324,16 +438,9 @@
                 
                 if (data.authorize) {
                     const auth = data.authorize;
-                    document.getElementById('statusDot').classList.add('connected');
-                    document.getElementById('statusText').textContent = 'Connected';
-                    document.getElementById('statusSubtext').textContent = auth.email || auth.loginid;
-                    document.getElementById('loginBtn').textContent = 'Connected';
-                    document.getElementById('loginBtn').disabled = true;
-                    document.getElementById('accountInfo').classList.add('show');
-                    document.getElementById('balanceText').textContent = `$${parseFloat(auth.balance).toFixed(2)}`;
-                    document.getElementById('accountId').textContent = auth.loginid;
+                    const accountType = auth.loginid?.includes('VRTC') ? 'demo' : 'real';
+                    showConnected(auth.balance, auth.currency, auth.loginid, accountType);
                     
-                    // Subscribe to balance updates
                     ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
                 }
                 
@@ -349,6 +456,7 @@
                         document.getElementById('statusText').textContent = 'Session Expired';
                         document.getElementById('loginBtn').textContent = 'Login with Deriv';
                         document.getElementById('loginBtn').disabled = false;
+                        document.getElementById('loginBtn').classList.remove('connected');
                     }
                 }
             };
@@ -362,11 +470,8 @@
             };
         }
         
-        // Initialize
         checkOAuthCallback();
-        if (authToken) {
-            connectWebSocket();
-        }
+        init();
     </script>
 </body>
 </html>

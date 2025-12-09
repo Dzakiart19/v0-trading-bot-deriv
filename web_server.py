@@ -596,14 +596,56 @@ BASE_HTML = '''
         tg.expand();
         tg.ready();
         
-        // Get init data
+        // Get init data and user
         const initData = tg.initData;
+        const tgUser = tg.initDataUnsafe?.user;
+        const telegramId = tgUser?.id;
+        
         let authToken = null;
         let ws = null;
         let isConnected = false;
+        let derivAppId = '1089';
+        let derivWs = null;
+        let currentStrategy = null;
         
         // API base URL
         const API_BASE = window.location.origin;
+        
+        // Get Deriv App ID from server
+        async function getDerivAppId() {{
+            try {{
+                const resp = await fetch(API_BASE + '/api/deriv/app-id');
+                const data = await resp.json();
+                derivAppId = data.app_id || '1089';
+            }} catch (e) {{
+                console.error('Failed to get app id:', e);
+            }}
+        }}
+        
+        // Check if user is already logged in via Telegram bot
+        async function checkTelegramLogin() {{
+            if (!telegramId) return false;
+            
+            try {{
+                const resp = await fetch(API_BASE + '/api/telegram/check-login?telegram_id=' + telegramId);
+                const data = await resp.json();
+                
+                if (data.logged_in && data.connected) {{
+                    currentStrategy = data.strategy;
+                    onDerivConnected({{
+                        balance: data.balance,
+                        currency: data.currency,
+                        loginid: data.loginid,
+                        account_type: data.account_type
+                    }});
+                    return true;
+                }}
+                return false;
+            }} catch (e) {{
+                console.error('Check login error:', e);
+                return false;
+            }}
+        }}
         
         // Auth with backend
         async function authenticate() {{
@@ -616,8 +658,15 @@ BASE_HTML = '''
                 const data = await resp.json();
                 if (data.success) {{
                     authToken = data.token;
+                    currentStrategy = data.selected_strategy;
                     connectWebSocket();
                     onAuthenticated(data);
+                    
+                    // Check if already connected via bot
+                    const alreadyConnected = await checkTelegramLogin();
+                    if (!alreadyConnected) {{
+                        logConsole('Login via Telegram bot atau klik tombol Login', 'info');
+                    }}
                 }}
             }} catch (e) {{
                 console.error('Auth error:', e);
@@ -625,8 +674,9 @@ BASE_HTML = '''
             }}
         }}
         
-        // WebSocket connection
+        // WebSocket connection to our server
         function connectWebSocket() {{
+            if (!authToken) return;
             ws = new WebSocket(`${{API_BASE.replace('http', 'ws')}}/ws/stream?token=${{authToken}}`);
             
             ws.onopen = () => {{
@@ -638,6 +688,17 @@ BASE_HTML = '''
             ws.onmessage = (event) => {{
                 const msg = JSON.parse(event.data);
                 handleWSMessage(msg);
+                
+                // Handle strategy change from Telegram
+                if (msg.type === 'strategy_changed') {{
+                    currentStrategy = msg.strategy;
+                    onStrategyChanged(msg.strategy);
+                }}
+                
+                // Handle snapshot with Deriv data
+                if (msg.type === 'snapshot' && msg.data.connected) {{
+                    onDerivConnected(msg.data);
+                }}
             }};
             
             ws.onclose = () => {{
@@ -648,6 +709,80 @@ BASE_HTML = '''
             }};
         }}
         
+        // Connect directly to Deriv (fallback)
+        function connectDerivDirect(token) {{
+            derivWs = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=' + derivAppId);
+            
+            derivWs.onopen = () => {{
+                derivWs.send(JSON.stringify({{ authorize: token }}));
+            }};
+            
+            derivWs.onmessage = (msg) => {{
+                const data = JSON.parse(msg.data);
+                
+                if (data.authorize) {{
+                    onDerivConnected({{
+                        balance: data.authorize.balance,
+                        currency: data.authorize.currency,
+                        loginid: data.authorize.loginid,
+                        account_type: data.authorize.loginid?.includes('VRTC') ? 'demo' : 'real'
+                    }});
+                    
+                    // Sync to server
+                    if (telegramId) {{
+                        fetch(API_BASE + '/api/telegram/sync-deriv-token?telegram_id=' + telegramId + '&token=' + token, {{
+                            method: 'POST'
+                        }});
+                    }}
+                    
+                    // Subscribe to balance
+                    derivWs.send(JSON.stringify({{ balance: 1, subscribe: 1 }}));
+                }}
+                
+                if (data.balance) {{
+                    updateBalance(data.balance.balance, data.balance.currency);
+                }}
+                
+                if (data.tick) {{
+                    onTickData(data.tick);
+                }}
+                
+                if (data.error) {{
+                    logConsole('Deriv Error: ' + data.error.message, 'error');
+                }}
+            }};
+            
+            derivWs.onclose = () => {{
+                logConsole('Disconnected from Deriv', 'error');
+            }};
+        }}
+        
+        // Called when connected to Deriv (either via bot or direct)
+        function onDerivConnected(data) {{
+            updateConnectionStatus(true);
+            updateBalance(data.balance, data.currency);
+            
+            const loginBtn = document.getElementById('btn-login');
+            if (loginBtn) {{
+                loginBtn.textContent = '✓ Connected (' + (data.account_type || 'demo').toUpperCase() + ')';
+                loginBtn.disabled = true;
+            }}
+            
+            const statusText = document.getElementById('status-text');
+            if (statusText) {{
+                statusText.textContent = data.loginid || 'Connected';
+            }}
+            
+            logConsole('Connected to Deriv: ' + (data.loginid || ''), 'info');
+        }}
+        
+        function updateBalance(balance, currency) {{
+            const balEl = document.getElementById('balance');
+            if (balEl) {{
+                balEl.textContent = '$' + parseFloat(balance || 0).toFixed(2);
+            }}
+        }}
+        
         function updateConnectionStatus(connected) {{
             const dot = document.querySelector('.status-dot');
             if (dot) {{
@@ -656,26 +791,32 @@ BASE_HTML = '''
         }}
         
         function logConsole(msg, type = 'normal') {{
-            const console = document.getElementById('console');
-            if (console) {{
+            const consoleEl = document.getElementById('console');
+            if (consoleEl) {{
                 const line = document.createElement('div');
                 line.className = 'console-line ' + type;
                 line.textContent = '> ' + new Date().toLocaleTimeString() + ' | ' + msg;
-                console.appendChild(line);
-                console.scrollTop = console.scrollHeight;
+                consoleEl.appendChild(line);
+                consoleEl.scrollTop = consoleEl.scrollHeight;
             }}
         }}
         
         // Page-specific handlers (overridden by each page)
         function onAuthenticated(data) {{ console.log('Authenticated', data); }}
         function handleWSMessage(msg) {{ console.log('WS Message', msg); }}
+        function onStrategyChanged(strategy) {{ console.log('Strategy changed:', strategy); }}
+        function onTickData(tick) {{ console.log('Tick:', tick); }}
         
         // Initialize
-        if (initData) {{
-            authenticate();
-        }} else {{
-            logConsole('Please open from Telegram', 'error');
-        }}
+        getDerivAppId().then(() => {{
+            if (initData) {{
+                authenticate();
+            }} else {{
+                // Fallback for testing outside Telegram
+                logConsole('Testing mode - not in Telegram', 'info');
+                checkTelegramLogin();
+            }}
+        }});
     </script>
     {extra_scripts}
 </body>
@@ -1599,6 +1740,17 @@ async def app_router(strategy: str = Query(None), token: str = Query(None)):
 async def telegram_set_strategy(telegram_id: int = Query(...), strategy: str = Query(...)):
     """Set strategy from Telegram bot"""
     session_manager.set_strategy(telegram_id, strategy)
+    
+    user_id = str(telegram_id)
+    if user_id in manager.active_connections:
+        try:
+            await manager.send_personal(user_id, {
+                "type": "strategy_changed",
+                "strategy": strategy
+            })
+        except:
+            pass
+    
     return {"success": True, "strategy": strategy}
 
 
@@ -1622,6 +1774,64 @@ async def telegram_get_webapp_url(telegram_id: int = Query(...)):
     return {
         "url": route,
         "strategy": strategy
+    }
+
+
+@app.get("/api/telegram/check-login")
+async def check_telegram_login(telegram_id: int = Query(...)):
+    """Check if Telegram user is logged in to Deriv via bot"""
+    ws = deriv_connections.get(telegram_id)
+    strategy = session_manager.get_strategy(telegram_id)
+    
+    if ws and ws.is_connected():
+        return {
+            "logged_in": True,
+            "connected": True,
+            "balance": ws.get_balance(),
+            "currency": ws.get_currency(),
+            "loginid": ws.loginid,
+            "strategy": strategy,
+            "account_type": "demo" if ws.loginid and "VRTC" in str(ws.loginid) else "real"
+        }
+    
+    return {
+        "logged_in": False,
+        "connected": False,
+        "strategy": strategy
+    }
+
+
+@app.get("/api/deriv/app-id")
+async def get_deriv_app_id():
+    """Get Deriv App ID for OAuth"""
+    import os
+    app_id = os.environ.get("DERIV_APP_ID", "1089")
+    return {"app_id": app_id}
+
+
+@app.post("/api/telegram/sync-deriv-token")
+async def sync_deriv_token(telegram_id: int = Query(...), token: str = Query(...)):
+    """Sync Deriv token from webapp to telegram bot session"""
+    from deriv_ws import DerivWebSocket
+    import os
+    
+    app_id = os.environ.get("DERIV_APP_ID", "1089")
+    ws = DerivWebSocket(app_id=app_id)
+    
+    if not ws.connect():
+        return {"success": False, "error": "Connection failed"}
+    
+    if not ws.authorize(token):
+        ws.disconnect()
+        return {"success": False, "error": "Invalid token"}
+    
+    deriv_connections[telegram_id] = ws
+    
+    return {
+        "success": True,
+        "balance": ws.get_balance(),
+        "currency": ws.get_currency(),
+        "loginid": ws.loginid
     }
 
 
