@@ -155,6 +155,45 @@ app.add_middleware(
 )
 
 
+# ==================== Static WebApp Routes ====================
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_index():
+    """Serve main index page from webapps folder"""
+    with open("webapps/index.html", "r") as f:
+        return HTMLResponse(content=f.read())
+
+@app.get("/terminal", response_class=HTMLResponse)
+async def serve_terminal():
+    """Serve Terminal strategy page"""
+    with open("webapps/terminal.html", "r") as f:
+        return HTMLResponse(content=f.read())
+
+@app.get("/tick-picker", response_class=HTMLResponse)
+async def serve_tick_picker():
+    """Serve Tick Picker strategy page"""
+    with open("webapps/tick-picker.html", "r") as f:
+        return HTMLResponse(content=f.read())
+
+@app.get("/digitpad", response_class=HTMLResponse)
+async def serve_digitpad():
+    """Serve DigitPad strategy page"""
+    with open("webapps/digitpad.html", "r") as f:
+        return HTMLResponse(content=f.read())
+
+@app.get("/amt", response_class=HTMLResponse)
+async def serve_amt():
+    """Serve AMT Accumulator strategy page"""
+    with open("webapps/amt.html", "r") as f:
+        return HTMLResponse(content=f.read())
+
+@app.get("/sniper", response_class=HTMLResponse)
+async def serve_sniper():
+    """Serve Sniper strategy page"""
+    with open("webapps/sniper.html", "r") as f:
+        return HTMLResponse(content=f.read())
+
+
 # ==================== Telegram WebApp Auth ====================
 
 def verify_telegram_webapp(init_data: str) -> Optional[Dict]:
@@ -386,43 +425,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         manager.disconnect(user_id)
 
 
-# ==================== Static HTML Pages ====================
-
-# Base HTML template
-BASE_HTML = '''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>{title}</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        :root {{
-            --bg-primary: #0d1117;
-            --bg-secondary: #161b22;
-            --bg-card: #21262d;
-            --border-color: #30363d;
-            --text-primary: #f0f6fc;
-            --text-secondary: #8b949e;
-            --accent-green: #39d353;
-            --accent-red: #f85149;
-            --accent-blue: #58a6ff;
-            --accent-yellow: #d29922;
-        }}
-        body {{ 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            min-height: 100vh;
-            padding: 16px;
-        }}
-        .container {{ max-width: 800px; margin: 0 auto; }}
-        .header {{ 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center;
             padding: 16px 0;
             border-bottom: 1px solid var(--border-color);
             margin-bottom: 20px;
