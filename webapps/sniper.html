@@ -418,11 +418,13 @@
         let stats = { wins: 0, losses: 0, profit: 0 };
         
         function connectDeriv() {
+            updateButtonState();
             ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
             
             ws.onopen = () => {
                 if (authToken) ws.send(JSON.stringify({ authorize: authToken }));
                 ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 }));
+                updateButtonState();
             };
             
             ws.onmessage = (msg) => {
@@ -431,6 +433,7 @@
                 if (data.authorize) {
                     document.getElementById('balance').textContent = `$${parseFloat(data.authorize.balance).toFixed(2)}`;
                     ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+                    updateButtonState();
                 }
                 
                 if (data.balance) {
@@ -449,7 +452,10 @@
                 }
             };
             
-            ws.onclose = () => setTimeout(connectDeriv, 3000);
+            ws.onclose = () => {
+                updateButtonState();
+                setTimeout(connectDeriv, 3000);
+            };
         }
         
         function handleTick(tick) {
@@ -652,11 +658,36 @@
         }
         
         function toggleSniper() {
+            if (!authToken) {
+                alert('Please login first via Telegram bot');
+                return;
+            }
+            
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                alert('WebSocket not connected. Reconnecting...');
+                connectDeriv();
+                return;
+            }
+            
             isSniperActive = !isSniperActive;
             
             const btn = document.getElementById('sniperBtn');
             btn.classList.toggle('active', isSniperActive);
             btn.innerHTML = isSniperActive ? '<span>SNIPER ACTIVE</span>' : '<span>START SNIPER</span>';
+        }
+        
+        function updateButtonState() {
+            const btn = document.getElementById('sniperBtn');
+            if (!authToken) {
+                btn.disabled = true;
+                btn.innerHTML = '<span>LOGIN REQUIRED</span>';
+            } else if (!ws || ws.readyState !== WebSocket.OPEN) {
+                btn.disabled = true;
+                btn.innerHTML = '<span>CONNECTING...</span>';
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = isSniperActive ? '<span>SNIPER ACTIVE</span>' : '<span>START SNIPER</span>';
+            }
         }
         
         function executeTrade(direction) {
@@ -724,6 +755,8 @@
         
         // Initialize with Telegram token check (secured with initData)
         async function initPage() {
+            updateButtonState();
+            
             if (window.Telegram?.WebApp) {
                 const tg = window.Telegram.WebApp;
                 tg.expand();
@@ -740,6 +773,7 @@
                         const data = await resp.json();
                         if (data.success && data.token) {
                             authToken = data.token;
+                            updateButtonState();
                         }
                     } catch (e) {
                         console.error('Failed to get token from bot:', e);
@@ -748,7 +782,9 @@
             }
             
             if (!authToken) {
-                window.location.href = 'index.html';
+                // Show info instead of redirect - allow viewing without trading
+                document.getElementById('balance').textContent = 'Not logged in';
+                updateButtonState();
             } else {
                 connectDeriv();
             }

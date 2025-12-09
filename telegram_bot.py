@@ -1112,13 +1112,13 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         strategy_info = STRATEGIES.get(selected_strategy, {})
         
         await query.edit_message_text(
-            f"▶️ *Trading Dimulai!*\n\n"
+            f"▶️ <b>Trading Dimulai!</b>\n\n"
             f"📊 Strategi: {strategy_info.get('icon', '')} {strategy_info.get('name', selected_strategy)}\n"
             f"💱 Symbol: {selected_symbol}\n"
             f"💵 Stake: $1.00\n\n"
             f"Gunakan /status untuk melihat progress\n"
             f"Gunakan /stop untuk menghentikan",
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📈 Status", callback_data="menu_status")],
                 [InlineKeyboardButton("⏹️ Stop", callback_data="confirm_stop_trading")],
@@ -1160,11 +1160,11 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             if current_trades >= status['target_trades']:
                 await self.application.bot.send_message(
                     chat_id,
-                    f"🏁 *Target Tercapai!*\n\n"
+                    f"🏁 <b>Target Tercapai!</b>\n\n"
                     f"Total Trades: {current_trades}\n"
                     f"Profit: ${status['session_profit']:.2f}\n"
                     f"Win Rate: {status['win_rate']:.1f}%",
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.HTML
                 )
                 tm.stop()
                 break

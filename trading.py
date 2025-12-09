@@ -279,10 +279,13 @@ class TradingManager:
         return {
             "state": self.state.value,
             "trades": self.session_trades,
+            "session_trades": self.session_trades,
+            "target_trades": self.config.target_trades if self.config else 50,
             "wins": self.session_wins,
             "losses": self.session_losses,
             "win_rate": self._get_win_rate(),
             "profit": self.session_profit,
+            "session_profit": self.session_profit,
             "balance": self.ws.get_balance() if self.ws.is_connected() else 0,
             "martingale_level": self.martingale_level,
             "strategy": self.config.strategy.value if self.config else "N/A",
@@ -292,9 +295,11 @@ class TradingManager:
     def _on_tick(self, tick: Dict[str, Any]):
         """Handle incoming tick data - Auto process signals"""
         if self.state != TradingState.RUNNING:
+            logger.debug(f"Tick ignored - state is {self.state.value}")
             return
         
         if self.pending_result:
+            logger.debug("Tick ignored - waiting for pending trade result")
             return  # Wait for current trade to complete
         
         with self._trade_lock:
@@ -302,7 +307,10 @@ class TradingManager:
             signal = self.strategy.add_tick(tick)
             
             if signal:
+                logger.info(f"Signal received: direction={getattr(signal, 'direction', 'N/A')}, confidence={getattr(signal, 'confidence', 0):.2%}")
                 self._process_signal(signal)
+            else:
+                logger.debug("No signal from strategy")
     
     def _process_signal(self, signal):
         """Process trading signal automatically"""
@@ -395,13 +403,17 @@ class TradingManager:
     def _execute_trade(self, signal, stake: float):
         """Execute a trade"""
         try:
+            logger.info(f"Executing trade with stake ${stake:.2f}")
+            
             # Determine contract type based on signal
             if hasattr(signal, 'contract_type'):
                 contract_type = signal.contract_type
             elif hasattr(signal, 'direction'):
-                contract_type = "CALL" if signal.direction == "UP" else "PUT"
+                contract_type = "CALL" if signal.direction in ["UP", "BUY", "CALL"] else "PUT"
             else:
                 contract_type = "CALL"  # Default
+            
+            logger.info(f"Contract type: {contract_type}")
             
             # Get duration
             duration = self.config.duration

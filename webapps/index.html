@@ -346,6 +346,24 @@
             if (telegramId) {
                 const connected = await checkTelegramLogin();
                 if (connected) {
+                    // Auto-redirect to selected strategy if available
+                    if (currentStrategy) {
+                        const strategyRoutes = {
+                            'TERMINAL': '/terminal',
+                            'TICK_PICKER': '/tick-picker',
+                            'DIGITPAD': '/digitpad',
+                            'AMT': '/amt',
+                            'SNIPER': '/sniper',
+                            'LDP': '/digitpad',
+                            'MULTI_INDICATOR': '/terminal'
+                        };
+                        const route = strategyRoutes[currentStrategy];
+                        const currentPath = window.location.pathname;
+                        if (route && (currentPath === '/' || currentPath === '/index.html')) {
+                            window.location.href = route;
+                            return;
+                        }
+                    }
                     return;
                 }
             }
