@@ -455,16 +455,17 @@ Klik tombol di bawah untuk membuka WebApp:
         
         strategy_info = STRATEGIES.get(selected_strategy, {})
         
-        text = f"""
-⚙️ *Pengaturan Auto Trade*
+        strategy_name = strategy_info.get('name', selected_strategy)
+        strategy_icon = strategy_info.get('icon', '')
+        
+        text = f"""⚙️ <b>Pengaturan Auto Trade</b>
 
-📊 Strategi: {strategy_info.get('icon', '')} {strategy_info.get('name', selected_strategy)}
+📊 Strategi: {strategy_icon} {strategy_name}
 💱 Pair: {selected_symbol}
 💵 Stake: $1.00 (default)
 🎯 Target: 10 trades
 
-Klik tombol di bawah untuk memulai:
-"""
+Klik tombol di bawah untuk memulai:"""
         
         keyboard = [
             [InlineKeyboardButton("📊 Ubah Strategi", callback_data="menu_strategy")],
@@ -476,13 +477,13 @@ Klik tombol di bawah untuk memulai:
         if update.message:
             await update.message.reply_text(
                 text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         elif update.callback_query:
             await update.callback_query.edit_message_text(
                 text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     

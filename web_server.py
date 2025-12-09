@@ -392,6 +392,13 @@ async def get_user_strategy(token: str = Query(...)):
     
     return {"strategy": strategy}
 
+@app.post("/api/telegram/set-strategy")
+async def telegram_set_strategy(telegram_id: int = Query(...), strategy: str = Query(...)):
+    """Set strategy from Telegram bot - no session required"""
+    session_manager.set_strategy(telegram_id, strategy)
+    logger.info(f"Strategy set via Telegram for user {telegram_id}: {strategy}")
+    return {"success": True, "telegram_id": telegram_id, "strategy": strategy}
+
 @app.post("/api/user/strategy")
 async def set_user_strategy(token: str = Query(...), strategy: str = Query(...)):
     """Set user's selected strategy"""
