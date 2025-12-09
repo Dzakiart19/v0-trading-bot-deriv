@@ -56,7 +56,7 @@ async def main():
     try:
         # Start web server in thread
         logger.info(f"Starting Web Server on port {web_port}...")
-        web_server.run_server_thread(host="0.0.0.0", port=web_port)
+        web_server.start_server_thread(host="0.0.0.0", port=web_port)
         
         # Small delay to ensure web server is ready
         await asyncio.sleep(1)
