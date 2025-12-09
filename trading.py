@@ -17,6 +17,11 @@ from deriv_ws import DerivWebSocket
 from strategy import MultiIndicatorStrategy, Signal
 from ldp_strategy import LDPStrategy, LDPSignal
 from tick_analyzer import TickAnalyzerStrategy, TickSignal
+from accumulator_strategy import AccumulatorStrategy, AccumulatorSignal
+from terminal_strategy import TerminalStrategy, TerminalSignal
+from tick_picker_strategy import TickPickerStrategy, TickPickerSignal
+from digitpad_strategy import DigitPadStrategy, DigitSignal
+from sniper_strategy import SniperStrategy, SniperSignal
 from entry_filter import EntryFilter, RiskLevel, FilterResult
 from hybrid_money_manager import HybridMoneyManager, RiskLevel as MMRiskLevel
 from analytics import TradingAnalytics, TradeEntry
@@ -145,20 +150,23 @@ class TradingManager:
         """Configure trading session"""
         self.config = config
         
-        # Import strategies dynamically based on type
-        if config.strategy in [StrategyType.MULTI_INDICATOR, StrategyType.TERMINAL]:
+        # Route to correct strategy class based on type
+        if config.strategy == StrategyType.MULTI_INDICATOR:
             self.strategy = MultiIndicatorStrategy(config.symbol)
-        elif config.strategy in [StrategyType.LDP, StrategyType.DIGITPAD]:
+        elif config.strategy == StrategyType.LDP:
             self.strategy = LDPStrategy(config.symbol)
-        elif config.strategy in [StrategyType.TICK_ANALYZER, StrategyType.TICK_PICKER]:
+        elif config.strategy == StrategyType.TICK_ANALYZER:
             self.strategy = TickAnalyzerStrategy(config.symbol)
+        elif config.strategy == StrategyType.TERMINAL:
+            self.strategy = TerminalStrategy(config.symbol)
+        elif config.strategy == StrategyType.TICK_PICKER:
+            self.strategy = TickPickerStrategy(config.symbol)
+        elif config.strategy == StrategyType.DIGITPAD:
+            self.strategy = DigitPadStrategy()  # No symbol in constructor
         elif config.strategy == StrategyType.AMT:
-            # Accumulator uses multi-indicator base
-            self.strategy = MultiIndicatorStrategy(config.symbol)
+            self.strategy = AccumulatorStrategy()  # No symbol in constructor
         elif config.strategy == StrategyType.SNIPER:
-            # Sniper uses high confidence multi-indicator
-            self.strategy = MultiIndicatorStrategy(config.symbol)
-            self.strategy.min_confidence = 0.85  # Higher threshold for sniper
+            self.strategy = SniperStrategy(config.symbol)
         else:
             self.strategy = MultiIndicatorStrategy(config.symbol)
         
@@ -234,8 +242,12 @@ class TradingManager:
             logger.info(f"Preloading {len(history)} historical ticks into strategy")
             for tick in history:
                 # Add tick without generating signals during warmup
-                if self.strategy:
-                    self.strategy.add_tick(tick)
+                # Handle different add_tick() signatures based on strategy instance type
+                if self.strategy and self.config:
+                    if isinstance(self.strategy, (AccumulatorStrategy, DigitPadStrategy)):
+                        self.strategy.add_tick(self.config.symbol, tick)
+                    else:
+                        self.strategy.add_tick(tick)
             logger.info(f"Strategy warmed up with {len(history)} ticks, ready to trade")
             if self.on_progress:
                 self.on_progress({
@@ -499,7 +511,14 @@ class TradingManager:
         
         with self._trade_lock:
             # Add tick to strategy and get signal
-            signal = self.strategy.add_tick(tick)
+            # Handle different add_tick() signatures based on strategy instance type
+            if isinstance(self.strategy, (AccumulatorStrategy, DigitPadStrategy)):
+                # AccumulatorStrategy and DigitPadStrategy take (symbol, tick)
+                symbol = self.config.symbol if self.config else "R_100"
+                signal = self.strategy.add_tick(symbol, tick)
+            else:
+                # Other strategies take (tick) only
+                signal = self.strategy.add_tick(tick)
             
             if signal:
                 logger.info(f"Signal received: direction={getattr(signal, 'direction', 'N/A')}, confidence={getattr(signal, 'confidence', 0):.2%}")
@@ -626,17 +645,47 @@ class TradingManager:
         
         # Capture signal data for thread
         signal_confidence = signal.confidence if hasattr(signal, 'confidence') else 0.5
-        if hasattr(signal, 'contract_type'):
+        
+        # Handle AccumulatorSignal differently - it has action not direction
+        if isinstance(signal, AccumulatorSignal):
+            # AccumulatorSignal uses action (ENTER/EXIT/HOLD) not direction
+            if signal.action != "ENTER":
+                logger.debug(f"Accumulator signal action is {signal.action}, not ENTER - skipping trade")
+                self.pending_result = False
+                return
+            # For accumulator, we use ACCU contract type (not yet supported in buy_contract)
+            # Fall back to CALL for now since accumulator isn't fully implemented
+            contract_type = "CALL"
+            logger.info(f"AccumulatorSignal received with growth_rate={signal.growth_rate}%")
+        # Extract contract type based on signal type
+        elif hasattr(signal, 'contract_type'):
             contract_type = signal.contract_type
         elif hasattr(signal, 'direction'):
             contract_type = "CALL" if signal.direction in ["UP", "BUY", "CALL"] else "PUT"
         else:
             contract_type = "CALL"
         
+        # Extract barrier for digit-based contracts (LDP, DigitPad)
+        barrier = None
+        if isinstance(signal, (LDPSignal, DigitSignal)):
+            # Digit signals have barrier/digit for digit contracts
+            if hasattr(signal, 'barrier'):
+                barrier = str(signal.barrier)
+            elif hasattr(signal, 'digit'):
+                barrier = str(signal.digit)
+            elif hasattr(signal, 'predicted_digit'):
+                barrier = str(signal.predicted_digit)
+        elif hasattr(signal, 'barrier'):
+            barrier = str(signal.barrier)
+        elif hasattr(signal, 'digit'):
+            barrier = str(signal.digit)
+        elif hasattr(signal, 'predicted_digit'):
+            barrier = str(signal.predicted_digit)
+        
         # Run trade execution in a separate thread to avoid blocking WebSocket
         def trade_worker():
             try:
-                self._execute_trade_worker(contract_type, stake, signal_confidence)
+                self._execute_trade_worker(contract_type, stake, signal_confidence, barrier)
             except Exception as e:
                 logger.error(f"Trade worker error: {e}")
                 self.pending_result = False
@@ -644,9 +693,9 @@ class TradingManager:
         
         trade_thread = threading.Thread(target=trade_worker, daemon=True)
         trade_thread.start()
-        logger.info(f"Trade execution started in separate thread for {contract_type}")
+        logger.info(f"Trade execution started in separate thread for {contract_type}" + (f" barrier={barrier}" if barrier else ""))
     
-    def _execute_trade_worker(self, contract_type: str, stake: float, signal_confidence: float):
+    def _execute_trade_worker(self, contract_type: str, stake: float, signal_confidence: float, barrier: Optional[str] = None):
         """Worker method that actually executes the trade (runs in separate thread)"""
         if not self.config:
             logger.error("No config available in trade worker")
@@ -655,7 +704,7 @@ class TradingManager:
         
         try:
             logger.info(f"Executing trade with stake ${stake:.2f}")
-            logger.info(f"Contract type: {contract_type}")
+            logger.info(f"Contract type: {contract_type}" + (f", barrier: {barrier}" if barrier else ""))
             
             # Get duration
             duration = self.config.duration
@@ -681,7 +730,8 @@ class TradingManager:
                 contract_type=contract_type,
                 stake=stake,
                 duration=duration,
-                duration_unit=duration_unit
+                duration_unit=duration_unit,
+                barrier=barrier
             )
             
             if result and result.get("contract_id"):
