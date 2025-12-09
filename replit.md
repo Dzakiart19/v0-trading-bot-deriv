@@ -53,10 +53,16 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
 
 ## Recent Changes
+- 2025-12-09: **CRITICAL FIX** - WebSocket reconnect with auto re-authorization dan state recovery
+- 2025-12-09: Timeout proposal/buy dinaikkan dari 10s ke 20s untuk stabilitas
+- 2025-12-09: Ping interval dikurangi dari 60s ke 30s (sesuai Deriv best practices)
+- 2025-12-09: Menambahkan _on_connection_status callback di TradingManager untuk auto-resume setelah reconnect
+- 2025-12-09: Menambahkan re-subscribe tick otomatis setelah reconnect
+- 2025-12-09: Dibuat test_all_strategies.py untuk testing komprehensif semua strategi
 - 2025-12-09: **Critical Fix** - Trading timeout mitigation with retry mechanism and exponential backoff
 - 2025-12-09: Added connection health check (check_connection_health, get_connection_metrics) for debugging
 - 2025-12-09: Enhanced _send_and_wait with retry support (configurable retries, timeout tracking)
-- 2025-12-09: Added watchdog timer in TradingManager for stuck detection (60s check, 120s threshold)
+- 2025-12-09: Added watchdog timer in TradingManager for stuck detection (20s check, 120s threshold)
 - 2025-12-09: Added /api/debug endpoint for real-time connection and trading state monitoring
 - 2025-12-09: Created test_real_trade.py script for verifying timeout fixes
 - 2025-12-09: **Critical Fix** - Session files now cleared BEFORE module imports to prevent stale data

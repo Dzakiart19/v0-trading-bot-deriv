@@ -737,7 +737,7 @@ class DerivWebSocket:
         logger.info(f"Getting proposal for {contract_type} on {symbol}")
         proposal_req = {"proposal": 1, **parameters}
         
-        proposal_resp = self._send_and_wait(proposal_req, timeout=10, retries=2)
+        proposal_resp = self._send_and_wait(proposal_req, timeout=20, retries=2)
         
         if not proposal_resp:
             logger.error(f"Proposal timeout (consecutive: {self._consecutive_timeouts})")
@@ -765,7 +765,7 @@ class DerivWebSocket:
         buy_resp = self._send_and_wait({
             "buy": proposal_id,
             "price": stake
-        }, timeout=10, retries=1)
+        }, timeout=20, retries=1)
         
         if buy_resp and "buy" in buy_resp:
             buy_data = buy_resp["buy"]
