@@ -35,8 +35,9 @@ async def main():
     
     # Get environment variables
     telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    webapp_base_url = os.environ.get("WEBAPP_BASE_URL", "http://localhost:8000")
-    web_port = int(os.environ.get("WEB_PORT", "8000"))
+    replit_domain = os.environ.get("REPLIT_DEV_DOMAIN", "")
+    webapp_base_url = f"https://{replit_domain}" if replit_domain else os.environ.get("WEBAPP_BASE_URL", "http://localhost:5000")
+    web_port = int(os.environ.get("WEB_PORT", "5000"))
     
     if not telegram_token:
         logger.error("TELEGRAM_BOT_TOKEN not set!")
