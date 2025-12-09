@@ -256,13 +256,18 @@ async def serve_sniper():
 
 # ==================== Telegram WebApp Auth ====================
 
+TELEGRAM_AUTH_MAX_AGE = 600  # 10 minutes max age for initData
+
 def verify_telegram_webapp(init_data: str) -> Optional[Dict]:
-    """Verify Telegram WebApp init data"""
+    """Verify Telegram WebApp init data with auth_date freshness check"""
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN not configured")
         return None
     
     try:
+        import urllib.parse
+        import time
+        
         params = dict(p.split("=") for p in init_data.split("&") if "=" in p)
         received_hash = params.pop("hash", "")
         data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
@@ -279,17 +284,33 @@ def verify_telegram_webapp(init_data: str) -> Optional[Dict]:
             hashlib.sha256
         ).hexdigest()
         
-        if calculated_hash != received_hash:
+        # Use timing-safe comparison to prevent timing attacks
+        if not hmac.compare_digest(calculated_hash, received_hash):
             logger.error("Invalid Telegram WebApp hash")
             return None
         
-        import urllib.parse
+        # Check auth_date freshness to prevent replay attacks
+        auth_date_str = params.get("auth_date")
+        if not auth_date_str:
+            logger.error("Missing auth_date in initData")
+            return None
+        
+        try:
+            auth_date = int(auth_date_str)
+            current_time = int(time.time())
+            if current_time - auth_date > TELEGRAM_AUTH_MAX_AGE:
+                logger.error(f"Telegram initData expired: auth_date={auth_date}, current={current_time}")
+                return None
+        except (ValueError, TypeError):
+            logger.error("Invalid auth_date format")
+            return None
+        
         user_str = urllib.parse.unquote(params.get("user", "{}"))
         user_data = json.loads(user_str)
         
         return {
             "user": user_data,
-            "auth_date": params.get("auth_date"),
+            "auth_date": auth_date_str,
             "query_id": params.get("query_id")
         }
     except Exception as e:
@@ -332,6 +353,29 @@ async def telegram_auth(data: TelegramAuthData):
         "deriv_connected": deriv_token is not None,
         "deriv_account": deriv_account
     }
+
+@app.post("/api/telegram/get-deriv-token")
+async def get_deriv_token_for_telegram(data: TelegramAuthData):
+    """Get Deriv token - requires valid Telegram WebApp initData for security"""
+    result = verify_telegram_webapp(data.init_data)
+    if not result:
+        raise HTTPException(status_code=401, detail="Invalid Telegram authentication")
+    
+    user = result.get("user", {})
+    telegram_id = user.get("id")
+    if not telegram_id:
+        raise HTTPException(status_code=400, detail="Invalid user data")
+    
+    deriv_token = session_manager.get_deriv_token(telegram_id)
+    deriv_account = session_manager.get_deriv_account(telegram_id)
+    
+    if deriv_token:
+        return {
+            "success": True, 
+            "token": deriv_token,
+            "account": deriv_account
+        }
+    return {"success": False, "error": "Not logged in via Telegram bot"}
 
 @app.get("/api/telegram/check-login")
 async def check_telegram_login(telegram_id: int = Query(...)):

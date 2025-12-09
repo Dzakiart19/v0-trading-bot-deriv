@@ -479,10 +479,11 @@
         </div>
     </div>
 
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
         const DERIV_APP_ID = 1089;
         let ws = null;
-        let authToken = localStorage.getItem('deriv_token');
+        let authToken = null;
         let currentSymbol = 'R_100';
         let ticks = [];
         let isAutoTrading = false;
@@ -1029,12 +1030,39 @@
         // Handle window resize
         window.addEventListener('resize', drawChart);
         
-        // Initialize
-        if (!authToken) {
-            window.location.href = 'index.html';
-        } else {
-            connectDeriv();
+        // Initialize with Telegram token check (secured with initData)
+        async function initTerminal() {
+            if (window.Telegram?.WebApp) {
+                const tg = window.Telegram.WebApp;
+                tg.expand();
+                tg.ready();
+                const initData = tg.initData;
+                
+                if (initData) {
+                    try {
+                        const resp = await fetch('/api/telegram/get-deriv-token', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ init_data: initData })
+                        });
+                        const data = await resp.json();
+                        if (data.success && data.token) {
+                            authToken = data.token;
+                        }
+                    } catch (e) {
+                        console.error('Failed to get token from bot:', e);
+                    }
+                }
+            }
+            
+            if (!authToken) {
+                window.location.href = 'index.html';
+            } else {
+                connectDeriv();
+            }
         }
+        
+        initTerminal();
     </script>
 </body>
 </html>

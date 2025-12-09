@@ -328,7 +328,7 @@
         
         let DERIV_APP_ID = '1089';
         let ws = null;
-        let authToken = localStorage.getItem('deriv_token');
+        let authToken = null;
         let sessionToken = null;
         let sessionValidated = false;
         let currentStrategy = null;
@@ -421,6 +421,23 @@
                     showConnected(data.balance, data.currency, data.loginid, data.account_type);
                     highlightStrategy(data.strategy);
                     
+                    // Fetch and store Deriv token for strategy pages (secured with initData)
+                    if (initData) {
+                        try {
+                            const tokenResp = await fetch(API_BASE + '/api/telegram/get-deriv-token', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ init_data: initData })
+                            });
+                            const tokenData = await tokenResp.json();
+                            if (tokenData.success && tokenData.token) {
+                                authToken = tokenData.token;
+                            }
+                        } catch (e) {
+                            console.error('Failed to fetch deriv token:', e);
+                        }
+                    }
+                    
                     document.getElementById('telegram-info').style.display = 'block';
                     document.getElementById('telegram-info').classList.add('success');
                     document.getElementById('telegram-info').textContent = 'Login via Telegram bot berhasil! Akun Deriv sudah terkoneksi otomatis.';
@@ -482,7 +499,6 @@
             
             if (event.data && event.data.token) {
                 authToken = event.data.token;
-                localStorage.setItem('deriv_token', authToken);
                 connectWebSocket();
                 
                 if (sessionToken && sessionValidated) {
@@ -500,7 +516,6 @@
             
             if (token1) {
                 authToken = token1;
-                localStorage.setItem('deriv_token', token1);
                 if (acct1) localStorage.setItem('deriv_account', acct1);
                 
                 window.history.replaceState({}, document.title, window.location.pathname);
