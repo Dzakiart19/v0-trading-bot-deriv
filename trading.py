@@ -408,6 +408,14 @@ class TradingManager:
         
         return base_stake
     
+    def _calculate_next_stake(self) -> float:
+        """Calculate next stake for display"""
+        if not self.config:
+            return 1.0
+        if self.config.use_martingale and self.martingale_level > 0:
+            return self.config.base_stake * (2.0 ** self.martingale_level)
+        return self.config.base_stake
+    
     def _execute_trade(self, signal, stake: float):
         """Execute a trade"""
         if not self.config:
@@ -462,7 +470,9 @@ class TradingManager:
                     "buy_price": result["buy_price"],
                     "contract_type": contract_type,
                     "stake": stake,
-                    "entry_time": datetime.now()
+                    "entry_time": datetime.now(),
+                    "trade_number": self.session_trades + 1,
+                    "symbol": self.config.symbol
                 }
                 
                 logger.info(
@@ -471,6 +481,7 @@ class TradingManager:
                 )
                 
                 if self.on_trade_opened:
+                    logger.debug(f"Triggering on_trade_opened callback: contract_id={result['contract_id']}")
                     self.on_trade_opened(self.active_trade)
             else:
                 self.pending_result = False
@@ -492,8 +503,12 @@ class TradingManager:
             return
         
         status = contract.get("status")
+        is_sold = contract.get("is_sold", 0)
         
-        if status in ["sold", "won", "lost"]:
+        is_closed = is_sold == 1 or status in ["sold", "won", "lost"]
+        logger.debug(f"Contract update: status={status}, is_sold={is_sold}, is_closed={is_closed}")
+        
+        if is_closed:
             profit = contract.get("profit", 0)
             
             # Get balance before recording
@@ -555,12 +570,21 @@ class TradingManager:
             )
             
             if self.on_trade_closed:
-                self.on_trade_closed({
+                callback_data = {
                     "profit": profit,
                     "session_profit": self.session_profit,
                     "trades": self.session_trades,
-                    "win_rate": self._get_win_rate()
-                })
+                    "win_rate": self._get_win_rate(),
+                    "balance": balance_after,
+                    "stake": self.active_trade.get("stake", 0),
+                    "contract_type": self.active_trade.get("contract_type", ""),
+                    "martingale_level": self.martingale_level,
+                    "next_stake": self._calculate_next_stake(),
+                    "entry_spot": float(contract.get("entry_spot", 0)),
+                    "exit_tick": float(contract.get("exit_tick", 0))
+                }
+                logger.debug(f"Triggering on_trade_closed callback: profit={profit}, trades={self.session_trades}")
+                self.on_trade_closed(callback_data)
             
             # Progress notification
             self._notify_progress()

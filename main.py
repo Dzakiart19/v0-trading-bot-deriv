@@ -100,6 +100,10 @@ async def main():
         logger.info(f"Starting Web Server on port {web_port}...")
         web_server.start_server_thread(host="0.0.0.0", port=web_port)
         
+        # Register webapp manager for trade event broadcasting
+        from telegram_bot import set_webapp_manager
+        set_webapp_manager(web_server.manager)
+        
         # Small delay to ensure web server is ready
         await asyncio.sleep(1)
         

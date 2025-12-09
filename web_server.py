@@ -164,6 +164,14 @@ class WebSessionManager:
 manager = ConnectionManager()
 session_manager = WebSessionManager()
 
+async def broadcast_trade_event(event_type: str, data: dict, user_id: str = None):
+    """Broadcast trade event to connected websockets"""
+    payload = {"type": event_type, "data": data}
+    if user_id:
+        await manager.send_personal(user_id, payload)
+    else:
+        await manager.broadcast(payload)
+
 strategy_instances: Dict[str, Any] = {}
 deriv_connections: Dict[int, Any] = {}
 

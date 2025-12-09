@@ -27,6 +27,17 @@ from trading import TradingManager, TradingConfig, TradingState, StrategyType
 
 logger = logging.getLogger(__name__)
 
+_webapp_manager = None
+
+def set_webapp_manager(manager):
+    """Set the WebApp ConnectionManager reference for broadcasting trade events"""
+    global _webapp_manager
+    _webapp_manager = manager
+
+def get_webapp_manager():
+    """Get the WebApp ConnectionManager reference"""
+    return _webapp_manager
+
 
 # Strategy configurations with WebApp routes
 STRATEGIES = {
@@ -1173,6 +1184,19 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
                 )
             except Exception as e:
                 logger.error(f"Failed to send trade opened notification: {e}")
+            
+            webapp_mgr = get_webapp_manager()
+            if webapp_mgr:
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        webapp_mgr.send_personal(str(user.id), {
+                            "type": "trade_opened",
+                            "data": trade_info
+                        }),
+                        loop
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to broadcast trade opened to webapp: {e}")
         
         def on_trade_closed(trade_result):
             """Callback when trade is closed"""
@@ -1184,6 +1208,19 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
                 )
             except Exception as e:
                 logger.error(f"Failed to send trade closed notification: {e}")
+            
+            webapp_mgr = get_webapp_manager()
+            if webapp_mgr:
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        webapp_mgr.send_personal(str(user.id), {
+                            "type": "trade_closed",
+                            "data": trade_result
+                        }),
+                        loop
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to broadcast trade closed to webapp: {e}")
         
         def on_error(error_msg):
             """Callback on error"""
@@ -1295,14 +1332,17 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
     async def _notify_trade_opened(self, chat_id: int, trade_info: dict):
         """Notify user when a trade is opened"""
         try:
-            contract_type = html.escape(trade_info.get('contract_type', 'N/A'))
+            contract_type = trade_info.get('contract_type', 'N/A')
             stake = trade_info.get('stake', 0)
             buy_price = trade_info.get('buy_price', stake)
+            trade_num = trade_info.get('trade_number', 1)
+            symbol = trade_info.get('symbol', '')
             
             text = (
-                f"📈 <b>Trade Dibuka!</b>\n\n"
-                f"📋 Tipe: {contract_type}\n"
-                f"💵 Stake: ${buy_price:.2f}"
+                f"⏳ <b>ENTRY (Trade {trade_num})</b>\n\n"
+                f"• Tipe: {contract_type}\n"
+                f"• Symbol: {symbol}\n"
+                f"• Stake: ${buy_price:.2f}"
             )
             
             await self._send_rate_limited(
@@ -1315,20 +1355,25 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         """Notify user when a trade is closed"""
         try:
             profit = trade_result.get('profit', 0)
-            session_profit = trade_result.get('session_profit', 0)
+            balance = trade_result.get('balance', 0)
             trades = trade_result.get('trades', 0)
-            win_rate = trade_result.get('win_rate', 0)
+            next_stake = trade_result.get('next_stake', 1.0)
+            stake = trade_result.get('stake', 1.0)
             
-            emoji = "✅" if profit > 0 else "❌"
-            result_text = "MENANG" if profit > 0 else "KALAH"
-            profit_text = f"+${profit:.2f}" if profit > 0 else f"-${abs(profit):.2f}"
-            session_text = f"+${session_profit:.2f}" if session_profit >= 0 else f"-${abs(session_profit):.2f}"
+            if profit > 0:
+                emoji = "✅"
+                result_text = "WIN"
+                profit_text = f"+${profit:.2f}"
+            else:
+                emoji = "❌"
+                result_text = "LOSS"
+                profit_text = f"-${abs(stake):.2f}"
             
             text = (
-                f"{emoji} <b>Trade #{trades} {result_text}</b>\n\n"
-                f"💰 Profit: {profit_text}\n"
-                f"📊 Sesi: {session_text}\n"
-                f"📈 Win Rate: {win_rate:.1f}%"
+                f"{emoji} <b>{result_text} ({trades})</b>\n\n"
+                f"• {'Profit' if profit > 0 else 'Loss'}: {profit_text}\n"
+                f"• Saldo: ${balance:.2f}\n"
+                f"• Next Stake: ${next_stake:.2f}"
             )
             
             await self.application.bot.send_message(
