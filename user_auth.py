@@ -286,11 +286,13 @@ class UserAuth:
         if not token:
             return False
         
-        # Token should be 15-40 chars, alphanumeric
-        if not 15 <= len(token) <= 40:
+        # Token should be 15-100 chars (Deriv tokens can be longer)
+        if not 15 <= len(token) <= 100:
             return False
         
-        if not token.isalnum():
+        # Deriv API tokens can contain alphanumeric, dashes, and underscores
+        import re
+        if not re.match(r'^[A-Za-z0-9_-]+$', token):
             return False
         
         return True
