@@ -1,5 +1,5 @@
 # Core Telegram
-python-telegram-bot>=20.0
+python-telegram-bot[all]>=20.0
 
 # WebSocket
 websockets>=11.0
@@ -19,33 +19,3 @@ python-dotenv>=1.0.0
 # Security
 cryptography>=41.0.0
 pydantic>=2.0.0
-fastapi
-httpx
-numpy
-pydantic
-python-dotenv
-python-telegram-bot
-uvicorn
-websocket
-websocket-client
-cryptography
-fastapi
-httpx
-numpy
-pydantic
-python-dotenv
-python-telegram-bot
-uvicorn
-websocket-client
-websockets
-cryptography
-fastapi
-httpx
-numpy
-pydantic
-python-dotenv
-python-telegram-bot
-telegram
-uvicorn
-websocket-client
-websockets
