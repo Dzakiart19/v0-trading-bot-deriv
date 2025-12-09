@@ -1,1 +1,0 @@
-{"config": {"symbol": "R_100", "strategy": "TICK_PICKER", "base_stake": 1.0, "use_martingale": true}, "session": {"trades": 0, "wins": 0, "losses": 0, "profit": 0.0, "starting_balance": 9719.76, "martingale_level": 0}, "timestamp": "2025-12-09T06:49:52.355401"}

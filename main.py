@@ -29,6 +29,24 @@ bot: Optional[TelegramBot] = None
 shutdown_event = asyncio.Event()
 
 
+def clear_session_files():
+    """Clear all session/log files on startup and shutdown"""
+    log_files = [
+        "logs/user_auth.json",
+        "logs/session_recovery.json", 
+        "logs/chat_mapping.json",
+        "logs/.session_secret"
+    ]
+    
+    for file_path in log_files:
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logger.info(f"Cleared session file: {file_path}")
+        except Exception as e:
+            logger.error(f"Failed to clear {file_path}: {e}")
+
+
 async def main():
     """Main entry point"""
     global bot
@@ -47,6 +65,9 @@ async def main():
     
     # Create log directory
     os.makedirs("logs", exist_ok=True)
+    
+    # Clear old session files on startup (fresh start)
+    clear_session_files()
     
     logger.info("=" * 60)
     logger.info("    DERIV AUTO TRADING BOT")
@@ -98,7 +119,10 @@ async def main():
         # Cleanup
         if bot:
             await bot.stop()
-        logger.info("Shutdown complete")
+        
+        # Clear session files on shutdown
+        clear_session_files()
+        logger.info("Shutdown complete - all sessions cleared")
 
 
 def handle_shutdown(signum, frame):

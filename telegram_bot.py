@@ -1128,8 +1128,48 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             tm = self._trading_managers[user.id]
             tm.update_config(config)
         
+        # Setup callbacks for real-time notifications
+        chat_id = query.message.chat_id
+        
+        def on_trade_opened(trade_info):
+            """Callback when trade is opened"""
+            logger.info(f"Trade opened for user {user.id}: {trade_info}")
+            asyncio.run_coroutine_threadsafe(
+                self._notify_trade_opened(chat_id, trade_info),
+                asyncio.get_event_loop()
+            )
+        
+        def on_trade_closed(trade_result):
+            """Callback when trade is closed"""
+            logger.info(f"Trade closed for user {user.id}: {trade_result}")
+            asyncio.run_coroutine_threadsafe(
+                self._notify_trade_closed(chat_id, trade_result),
+                asyncio.get_event_loop()
+            )
+        
+        def on_error(error_msg):
+            """Callback on error"""
+            logger.error(f"Trading error for user {user.id}: {error_msg}")
+            asyncio.run_coroutine_threadsafe(
+                self._notify_trading_error(chat_id, error_msg),
+                asyncio.get_event_loop()
+            )
+        
+        tm.on_trade_opened = on_trade_opened
+        tm.on_trade_closed = on_trade_closed
+        tm.on_error = on_error
+        
         # Start trading
-        tm.start()
+        started = tm.start()
+        
+        if not started:
+            await query.edit_message_text(
+                "❌ Gagal memulai trading. Pastikan koneksi Deriv aktif.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Menu", callback_data="menu_main")]
+                ])
+            )
+            return
         
         strategy_info = STRATEGIES.get(selected_strategy, {})
         
@@ -1207,6 +1247,61 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             logger.error(f"Failed to send message: {e}")
     
     # ==================== Notification Methods ====================
+    
+    async def _notify_trade_opened(self, chat_id: int, trade_info: dict):
+        """Notify user when a trade is opened"""
+        try:
+            contract_type = trade_info.get('contract_type', 'N/A')
+            stake = trade_info.get('stake', 0)
+            buy_price = trade_info.get('buy_price', stake)
+            
+            text = (
+                f"📈 <b>Trade Dibuka!</b>\n\n"
+                f"📋 Tipe: {contract_type}\n"
+                f"💵 Stake: ${buy_price:.2f}"
+            )
+            
+            await self.application.bot.send_message(
+                chat_id, text, parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify trade opened: {e}")
+    
+    async def _notify_trade_closed(self, chat_id: int, trade_result: dict):
+        """Notify user when a trade is closed"""
+        try:
+            profit = trade_result.get('profit', 0)
+            session_profit = trade_result.get('session_profit', 0)
+            trades = trade_result.get('trades', 0)
+            win_rate = trade_result.get('win_rate', 0)
+            
+            emoji = "✅" if profit > 0 else "❌"
+            result_text = "MENANG" if profit > 0 else "KALAH"
+            profit_text = f"+${profit:.2f}" if profit > 0 else f"-${abs(profit):.2f}"
+            session_text = f"+${session_profit:.2f}" if session_profit >= 0 else f"-${abs(session_profit):.2f}"
+            
+            text = (
+                f"{emoji} <b>Trade #{trades} {result_text}</b>\n\n"
+                f"💰 Profit: {profit_text}\n"
+                f"📊 Sesi: {session_text}\n"
+                f"📈 Win Rate: {win_rate:.1f}%"
+            )
+            
+            await self.application.bot.send_message(
+                chat_id, text, parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify trade closed: {e}")
+    
+    async def _notify_trading_error(self, chat_id: int, error_msg: str):
+        """Notify user of trading error"""
+        try:
+            await self.application.bot.send_message(
+                chat_id,
+                f"⚠️ Trading Error: {error_msg}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify trading error: {e}")
     
     async def send_trade_notification(self, user_id: int, trade_result: dict):
         """Send trade notification to user"""
