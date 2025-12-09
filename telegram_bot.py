@@ -1131,29 +1131,41 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         # Setup callbacks for real-time notifications
         chat_id = query.message.chat_id
         
+        # Get the running event loop for thread-safe callbacks
+        loop = asyncio.get_running_loop()
+        
         def on_trade_opened(trade_info):
             """Callback when trade is opened"""
             logger.info(f"Trade opened for user {user.id}: {trade_info}")
-            asyncio.run_coroutine_threadsafe(
-                self._notify_trade_opened(chat_id, trade_info),
-                asyncio.get_event_loop()
-            )
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._notify_trade_opened(chat_id, trade_info),
+                    loop
+                )
+            except Exception as e:
+                logger.error(f"Failed to send trade opened notification: {e}")
         
         def on_trade_closed(trade_result):
             """Callback when trade is closed"""
             logger.info(f"Trade closed for user {user.id}: {trade_result}")
-            asyncio.run_coroutine_threadsafe(
-                self._notify_trade_closed(chat_id, trade_result),
-                asyncio.get_event_loop()
-            )
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._notify_trade_closed(chat_id, trade_result),
+                    loop
+                )
+            except Exception as e:
+                logger.error(f"Failed to send trade closed notification: {e}")
         
         def on_error(error_msg):
             """Callback on error"""
             logger.error(f"Trading error for user {user.id}: {error_msg}")
-            asyncio.run_coroutine_threadsafe(
-                self._notify_trading_error(chat_id, error_msg),
-                asyncio.get_event_loop()
-            )
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._notify_trading_error(chat_id, error_msg),
+                    loop
+                )
+            except Exception as e:
+                logger.error(f"Failed to send error notification: {e}")
         
         tm.on_trade_opened = on_trade_opened
         tm.on_trade_closed = on_trade_closed
