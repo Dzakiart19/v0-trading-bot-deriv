@@ -205,6 +205,40 @@ class TradingManager:
         # Subscribe to ticks
         self.ws.subscribe_ticks(self.config.symbol, self._on_tick)
         
+        # Preload historical data to warm up strategy
+        logger.info(f"Loading historical data for {self.config.symbol}...")
+        if self.on_progress:
+            self.on_progress({
+                "type": "warmup",
+                "message": "📊 Mengumpulkan data pasar...",
+                "ticks_needed": 50
+            })
+        
+        # Wait for history to load and preload strategy
+        time.sleep(1)  # Give time for history to load
+        history = self.ws.get_ticks_history(self.config.symbol, 100)
+        if history:
+            logger.info(f"Preloading {len(history)} historical ticks into strategy")
+            for tick in history:
+                # Add tick without generating signals during warmup
+                if self.strategy:
+                    self.strategy.add_tick(tick)
+            logger.info(f"Strategy warmed up with {len(history)} ticks, ready to trade")
+            if self.on_progress:
+                self.on_progress({
+                    "type": "warmup_complete",
+                    "message": "✅ Data siap, mulai analisis...",
+                    "ticks_loaded": len(history)
+                })
+        else:
+            logger.warning("No historical ticks available, strategy will need to collect live data")
+            if self.on_progress:
+                self.on_progress({
+                    "type": "warmup",
+                    "message": "⏳ Mengumpulkan data live...",
+                    "ticks_needed": 50
+                })
+        
         # Set callbacks for contract updates
         self.ws.on_contract_update = self._on_contract_update
         
@@ -574,10 +608,13 @@ class TradingManager:
                     "profit": profit,
                     "session_profit": self.session_profit,
                     "trades": self.session_trades,
+                    "wins": self.session_wins,
+                    "losses": self.session_losses,
                     "win_rate": self._get_win_rate(),
                     "balance": balance_after,
                     "stake": self.active_trade.get("stake", 0),
                     "contract_type": self.active_trade.get("contract_type", ""),
+                    "symbol": self.config.symbol if self.config else "",
                     "martingale_level": self.martingale_level,
                     "next_stake": self._calculate_next_stake(),
                     "entry_spot": float(contract.get("entry_spot", 0)),

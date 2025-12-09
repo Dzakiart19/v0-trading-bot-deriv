@@ -803,6 +803,7 @@ async def trading_start(request: TradingStartRequest):
     """
     Start trading for a user via API
     Reuses existing trading_manager from telegram_bot if available
+    Auto-reconnects to Deriv if connection is missing/disconnected but token exists
     """
     telegram_id = request.telegram_id
     
@@ -813,6 +814,7 @@ async def trading_start(request: TradingStartRequest):
             status_code=400,
             content={
                 "success": False,
+                "error": "Trading already running for this user",
                 "message": "Trading already running for this user",
                 "status": existing_manager.get_status()
             }
@@ -820,23 +822,78 @@ async def trading_start(request: TradingStartRequest):
     
     # Get Deriv WebSocket connection for user
     ws = deriv_connections.get(telegram_id)
-    if not ws:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "success": False,
-                "message": "User not connected to Deriv. Please login via Telegram bot first."
-            }
-        )
     
-    if not ws.is_connected():
-        return JSONResponse(
-            status_code=400,
-            content={
-                "success": False,
-                "message": "Deriv WebSocket not connected. Please reconnect via Telegram bot."
-            }
-        )
+    # Auto-reconnect logic: If no connection or disconnected, try to reconnect using stored token
+    if not ws or not ws.is_connected():
+        # Check if we have a stored Deriv token for this user
+        stored_token = session_manager.get_deriv_token(telegram_id)
+        
+        if stored_token:
+            logger.info(f"Auto-reconnecting to Deriv for telegram_id: {telegram_id}")
+            try:
+                from deriv_ws import DerivWebSocket
+                
+                # Create new WebSocket connection
+                new_ws = DerivWebSocket()
+                
+                if new_ws.connect():
+                    success, error_msg = new_ws.authorize(stored_token)
+                    
+                    if success:
+                        # Register the new connection
+                        deriv_connections[telegram_id] = new_ws
+                        ws = new_ws
+                        
+                        # Sync account info
+                        account_data = {
+                            "balance": new_ws.get_balance() if hasattr(new_ws, 'get_balance') else 0,
+                            "currency": new_ws.get_currency() if hasattr(new_ws, 'get_currency') else "USD",
+                            "loginid": new_ws.loginid if hasattr(new_ws, 'loginid') else "",
+                            "account_type": new_ws.account_type if hasattr(new_ws, 'account_type') else "demo"
+                        }
+                        session_manager.set_deriv_account(telegram_id, account_data)
+                        logger.info(f"Auto-reconnected to Deriv for telegram_id: {telegram_id}")
+                    else:
+                        new_ws.disconnect()
+                        logger.error(f"Auto-reconnect authorization failed for telegram_id: {telegram_id}: {error_msg}")
+                        return JSONResponse(
+                            status_code=400,
+                            content={
+                                "success": False,
+                                "error": f"Failed to reconnect: {error_msg}. Please re-login via Telegram bot.",
+                                "message": f"Failed to reconnect: {error_msg}. Please re-login via Telegram bot."
+                            }
+                        )
+                else:
+                    logger.error(f"Auto-reconnect WebSocket connection failed for telegram_id: {telegram_id}")
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "success": False,
+                            "error": "Failed to connect to Deriv. Please try again or re-login via Telegram bot.",
+                            "message": "Failed to connect to Deriv. Please try again or re-login via Telegram bot."
+                        }
+                    )
+            except Exception as e:
+                logger.error(f"Auto-reconnect error for telegram_id {telegram_id}: {e}")
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "error": f"Connection error: {str(e)}. Please re-login via Telegram bot.",
+                        "message": f"Connection error: {str(e)}. Please re-login via Telegram bot."
+                    }
+                )
+        else:
+            # No stored token - user must login via Telegram
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "Not connected to Deriv. Please login via Telegram bot first.",
+                    "message": "Not connected to Deriv. Please login via Telegram bot first."
+                }
+            )
     
     # Map strategy string to StrategyType enum
     strategy_map = {
@@ -855,6 +912,7 @@ async def trading_start(request: TradingStartRequest):
             status_code=400,
             content={
                 "success": False,
+                "error": f"Invalid strategy: {request.strategy}. Valid strategies: {list(strategy_map.keys())}",
                 "message": f"Invalid strategy: {request.strategy}. Valid strategies: {list(strategy_map.keys())}"
             }
         )
@@ -893,6 +951,7 @@ async def trading_start(request: TradingStartRequest):
             status_code=400,
             content={
                 "success": False,
+                "error": "Failed to start trading. Check if WebSocket is connected and configured.",
                 "message": "Failed to start trading. Check if WebSocket is connected and configured.",
                 "status": trading_manager.get_status()
             }

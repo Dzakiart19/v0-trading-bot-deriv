@@ -1377,9 +1377,28 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             except Exception as e:
                 logger.error(f"Failed to send error notification: {e}")
         
+        def on_progress(progress_info):
+            """Callback for progress updates (warmup, etc.)"""
+            try:
+                msg_type = progress_info.get("type", "")
+                message = progress_info.get("message", "Loading...")
+                
+                if msg_type in ["warmup", "warmup_complete"]:
+                    asyncio.run_coroutine_threadsafe(
+                        self.application.bot.send_message(
+                            chat_id,
+                            message
+                        ),
+                        loop
+                    )
+                    logger.info(f"Progress notification sent to user {user.id}: {message}")
+            except Exception as e:
+                logger.error(f"Failed to send progress notification: {e}")
+        
         tm.on_trade_opened = on_trade_opened
         tm.on_trade_closed = on_trade_closed
         tm.on_error = on_error
+        tm.on_progress = on_progress
         
         # Start trading
         started = tm.start()
