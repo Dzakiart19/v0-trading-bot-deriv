@@ -114,14 +114,14 @@ class AccumulatorStrategy:
             "last_tick": None
         }
     
-    def add_tick(self, symbol: str, tick: Dict[str, Any]):
-        """Add tick data for a symbol"""
+    def add_tick(self, symbol: str, tick: Dict[str, Any]) -> Optional[AccumulatorSignal]:
+        """Add tick data for a symbol and analyze for signals"""
         if symbol not in self.symbol_data:
             self._init_symbol(symbol)
         
         price = tick.get("quote", tick.get("price", 0))
         if price <= 0:
-            return
+            return None
         
         data = self.symbol_data[symbol]
         data["prices"].append(price)
@@ -130,6 +130,10 @@ class AccumulatorStrategy:
         # Update active position if exists
         if symbol in self.positions:
             self._update_position(symbol, price)
+            return None  # Don't signal when position is open
+        
+        # Analyze for new entry signal
+        return self.analyze(symbol)
     
     def analyze(self, symbol: str) -> Optional[AccumulatorSignal]:
         """

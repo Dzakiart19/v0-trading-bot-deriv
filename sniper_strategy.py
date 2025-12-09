@@ -109,14 +109,19 @@ class SniperStrategy:
         self.is_trading = False
         self.ping_ms = 0
     
-    def add_tick(self, tick: Dict[str, Any]):
-        """Add new tick data"""
+    def add_tick(self, tick: Dict[str, Any]) -> Optional[SniperSignal]:
+        """Add new tick data and analyze for signals"""
         self.ticks.append(tick)
         price = tick.get("quote", tick.get("price", 0))
         if price > 0:
             self.prices.append(price)
             if len(self.prices) > 200:
                 self.prices = self.prices[-200:]
+        
+        # Analyze for trading signal (only when trading is enabled)
+        if self.is_trading:
+            return self.analyze()
+        return None
     
     def set_strategy(self, strategy_name: str):
         """Set active sub-strategy"""

@@ -102,14 +102,17 @@ class TerminalStrategy:
         self.last_signal_time = 0
         self.signal_cooldown = 10  # seconds
     
-    def add_tick(self, tick: Dict[str, Any]):
-        """Add new tick data"""
+    def add_tick(self, tick: Dict[str, Any]) -> Optional[TerminalSignal]:
+        """Add new tick data and analyze for signals"""
         self.ticks.append(tick)
         price = tick.get("quote", tick.get("price", 0))
         if price > 0:
             self.prices.append(price)
             if len(self.prices) > 200:
                 self.prices = self.prices[-200:]
+        
+        # Analyze for trading signal
+        return self.analyze()
     
     def analyze(self) -> Optional[TerminalSignal]:
         """

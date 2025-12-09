@@ -783,19 +783,21 @@ class DerivWebSocket:
         duration: int,
         duration_unit: str = "t",
         barrier: Optional[str] = None,
-        callback: Optional[Callable] = None
+        callback: Optional[Callable] = None,
+        growth_rate: Optional[float] = None
     ) -> Optional[dict]:
         """
         Execute a trade
         
         Args:
-            contract_type: CALL, PUT, DIGITOVER, DIGITUNDER, etc.
+            contract_type: CALL, PUT, DIGITOVER, DIGITUNDER, ACCU, etc.
             symbol: Trading symbol
             stake: Stake amount
             duration: Contract duration
             duration_unit: 't' for ticks, 'm' for minutes, 'd' for days
             barrier: Barrier for digit contracts
             callback: Callback when contract closes
+            growth_rate: Growth rate for ACCU (Accumulator) contracts (0.01-0.05)
         """
         if not self.authorized:
             logger.error("Not authorized - cannot place trade")
@@ -805,8 +807,11 @@ class DerivWebSocket:
             logger.error("Not connected - cannot place trade")
             return None
         
-        # Build contract parameters
-        # Use integer amount for more reliable API response
+        # Special handling for Accumulator contracts
+        if contract_type == "ACCU":
+            return self._buy_accumulator(symbol, stake, growth_rate or 0.01, callback)
+        
+        # Build contract parameters for regular contracts
         parameters = {
             "contract_type": contract_type,
             "symbol": symbol,
@@ -889,6 +894,104 @@ class DerivWebSocket:
         else:
             error = buy_resp.get("error", {})
             logger.error(f"Buy error [{error.get('code', 'Unknown')}]: {error.get('message', 'Unknown')}")
+        
+        return None
+    
+    def _buy_accumulator(
+        self,
+        symbol: str,
+        stake: float,
+        growth_rate: float,
+        callback: Optional[Callable] = None
+    ) -> Optional[dict]:
+        """
+        Buy Accumulator contract
+        
+        Accumulator contracts work differently:
+        - growth_rate: 0.01 to 0.05 (1% to 5%)
+        - No duration - contract continues until barrier is breached
+        - Must use specific API format
+        """
+        if not self.connected or not self.authorized:
+            logger.error("Not connected/authorized for accumulator trade")
+            return None
+        
+        # Validate growth rate (1% to 5%)
+        growth_rate = max(0.01, min(0.05, growth_rate))
+        
+        # Pre-trade ping check
+        ping_resp = self._send_and_wait({"ping": 1}, timeout=5, retries=0)
+        if not ping_resp:
+            logger.error("Pre-accumulator ping failed")
+            return None
+        
+        # Build accumulator proposal - Deriv API uses specific format
+        parameters = {
+            "contract_type": "ACCU",
+            "symbol": symbol,
+            "currency": self.currency,
+            "basis": "stake",
+            "amount": round(float(stake), 2),
+            "growth_rate": growth_rate,
+            "limit_order": {
+                "take_profit": round(stake * 2, 2),  # Default 2x take profit
+                "stop_loss": round(stake * 0.5, 2)   # Default 50% stop loss
+            }
+        }
+        
+        logger.info(f"Accumulator proposal: {symbol} stake={stake} growth_rate={growth_rate*100}%")
+        
+        proposal_req = {"proposal": 1, **parameters}
+        proposal_resp = self._send_and_wait(proposal_req, timeout=30, retries=2)
+        
+        if not proposal_resp:
+            logger.error("Accumulator proposal timeout")
+            return None
+        
+        if "error" in proposal_resp:
+            error = proposal_resp.get("error", {})
+            error_code = error.get("code", "Unknown")
+            error_msg = error.get("message", "Unknown error")
+            logger.error(f"Accumulator proposal error [{error_code}]: {error_msg}")
+            # Fall back to regular CALL for symbols that don't support ACCU
+            logger.info("Falling back to CALL contract type")
+            return None
+        
+        proposal = proposal_resp.get("proposal", {})
+        proposal_id = proposal.get("id")
+        
+        if not proposal_id:
+            logger.error("No accumulator proposal ID")
+            return None
+        
+        # Execute buy
+        buy_resp = self._send_and_wait({
+            "buy": proposal_id,
+            "price": stake
+        }, timeout=30, retries=1)
+        
+        if buy_resp and "buy" in buy_resp:
+            buy_data = buy_resp["buy"]
+            contract_id = str(buy_data.get("contract_id"))
+            
+            if callback:
+                self._contract_callbacks[contract_id] = callback
+            
+            logger.info(f"Accumulator trade executed: contract_id={contract_id}")
+            return {
+                "contract_id": contract_id,
+                "buy_price": float(buy_data.get("buy_price", 0)),
+                "payout": float(buy_data.get("payout", 0)),
+                "start_time": buy_data.get("start_time"),
+                "contract_type": "ACCU",
+                "growth_rate": growth_rate
+            }
+        
+        if not buy_resp:
+            logger.error("Accumulator buy timeout")
+        else:
+            error = buy_resp.get("error", {})
+            logger.error(f"Accumulator buy error [{error.get('code')}]: {error.get('message')}")
         
         return None
     

@@ -118,6 +118,9 @@ class TickPickerStrategy:
             self.prices = self.prices[-200:]
         if len(self.directions) > 200:
             self.directions = self.directions[-200:]
+        
+        # Analyze for trading signal
+        return self.analyze()
     
     def analyze(self) -> Optional[TickPickerSignal]:
         """

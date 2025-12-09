@@ -646,46 +646,66 @@ class TradingManager:
         # Capture signal data for thread
         signal_confidence = signal.confidence if hasattr(signal, 'confidence') else 0.5
         
-        # Handle AccumulatorSignal differently - it has action not direction
+        # Determine contract type and parameters based on signal type
+        contract_type = "CALL"
+        barrier = None
+        growth_rate = None
+        
+        # Handle AccumulatorSignal - use ACCU contract with growth rate
         if isinstance(signal, AccumulatorSignal):
-            # AccumulatorSignal uses action (ENTER/EXIT/HOLD) not direction
             if signal.action != "ENTER":
-                logger.debug(f"Accumulator signal action is {signal.action}, not ENTER - skipping trade")
+                logger.debug(f"Accumulator signal action is {signal.action}, not ENTER - skipping")
                 self.pending_result = False
                 return
-            # For accumulator, we use ACCU contract type (not yet supported in buy_contract)
-            # Fall back to CALL for now since accumulator isn't fully implemented
-            contract_type = "CALL"
-            logger.info(f"AccumulatorSignal received with growth_rate={signal.growth_rate}%")
-        # Extract contract type based on signal type
+            contract_type = "ACCU"
+            growth_rate = signal.growth_rate / 100.0  # Convert 1-5 to 0.01-0.05
+            logger.info(f"AMT Accumulator: growth_rate={signal.growth_rate}%, trend={signal.trend_strength}")
+        
+        # Handle LDP and DigitPad signals - use digit contracts
+        elif isinstance(signal, LDPSignal):
+            contract_type = signal.contract_type  # DIGITOVER, DIGITUNDER, DIGITMATCH, DIGITDIFF, DIGITEVEN, DIGITODD
+            if signal.barrier is not None:
+                barrier = str(signal.barrier)
+            logger.info(f"LDP Strategy: {contract_type} barrier={barrier}")
+        
+        elif isinstance(signal, DigitSignal):
+            contract_type = signal.contract_type
+            if signal.digit is not None:
+                barrier = str(signal.digit)
+            logger.info(f"DigitPad Strategy: {contract_type} digit={barrier}")
+        
+        # Handle Terminal Strategy - high probability trades
+        elif isinstance(signal, TerminalSignal):
+            contract_type = "CALL" if signal.direction == "BUY" else "PUT"
+            logger.info(f"Terminal Strategy: {contract_type} probability={signal.probability:.1%}")
+        
+        # Handle Tick Picker - pattern-based trading
+        elif isinstance(signal, TickPickerSignal):
+            contract_type = "CALL" if signal.direction == "BUY" else "PUT"
+            logger.info(f"Tick Picker: {contract_type} pattern={signal.pattern} streak={signal.streak}")
+        
+        # Handle Sniper - ultra-selective trading
+        elif isinstance(signal, SniperSignal):
+            contract_type = "CALL" if signal.direction == "BUY" else "PUT"
+            logger.info(f"Sniper Strategy: {contract_type} confirmations={signal.confirmations}")
+        
+        # Handle Tick Analyzer - pattern detection
+        elif isinstance(signal, TickSignal):
+            contract_type = "CALL" if signal.direction == "BUY" else "PUT"
+            logger.info(f"Tick Analyzer: {contract_type} type={signal.signal_type}")
+        
+        # Handle Multi-Indicator and other strategies with direction
         elif hasattr(signal, 'contract_type'):
             contract_type = signal.contract_type
+            if hasattr(signal, 'barrier') and signal.barrier is not None:
+                barrier = str(signal.barrier)
         elif hasattr(signal, 'direction'):
             contract_type = "CALL" if signal.direction in ["UP", "BUY", "CALL"] else "PUT"
-        else:
-            contract_type = "CALL"
-        
-        # Extract barrier for digit-based contracts (LDP, DigitPad)
-        barrier = None
-        if isinstance(signal, (LDPSignal, DigitSignal)):
-            # Digit signals have barrier/digit for digit contracts
-            if hasattr(signal, 'barrier'):
-                barrier = str(signal.barrier)
-            elif hasattr(signal, 'digit'):
-                barrier = str(signal.digit)
-            elif hasattr(signal, 'predicted_digit'):
-                barrier = str(signal.predicted_digit)
-        elif hasattr(signal, 'barrier'):
-            barrier = str(signal.barrier)
-        elif hasattr(signal, 'digit'):
-            barrier = str(signal.digit)
-        elif hasattr(signal, 'predicted_digit'):
-            barrier = str(signal.predicted_digit)
         
         # Run trade execution in a separate thread to avoid blocking WebSocket
         def trade_worker():
             try:
-                self._execute_trade_worker(contract_type, stake, signal_confidence, barrier)
+                self._execute_trade_worker(contract_type, stake, signal_confidence, barrier, growth_rate)
             except Exception as e:
                 logger.error(f"Trade worker error: {e}")
                 self.pending_result = False
@@ -695,7 +715,7 @@ class TradingManager:
         trade_thread.start()
         logger.info(f"Trade execution started in separate thread for {contract_type}" + (f" barrier={barrier}" if barrier else ""))
     
-    def _execute_trade_worker(self, contract_type: str, stake: float, signal_confidence: float, barrier: Optional[str] = None):
+    def _execute_trade_worker(self, contract_type: str, stake: float, signal_confidence: float, barrier: Optional[str] = None, growth_rate: Optional[float] = None):
         """Worker method that actually executes the trade (runs in separate thread)"""
         if not self.config:
             logger.error("No config available in trade worker")
@@ -731,7 +751,8 @@ class TradingManager:
                 stake=stake,
                 duration=duration,
                 duration_unit=duration_unit,
-                barrier=barrier
+                barrier=barrier,
+                growth_rate=growth_rate
             )
             
             if result and result.get("contract_id"):

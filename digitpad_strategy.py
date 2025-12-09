@@ -84,14 +84,14 @@ class DigitPadStrategy:
             "last_tick": None
         }
     
-    def add_tick(self, symbol: str, tick: Dict[str, Any]):
-        """Add tick data for a symbol"""
+    def add_tick(self, symbol: str, tick: Dict[str, Any]) -> Optional[DigitSignal]:
+        """Add tick data for a symbol and analyze for signals"""
         if symbol not in self.symbol_data:
             self._init_symbol(symbol)
         
         price = tick.get("quote", tick.get("price", 0))
         if price <= 0:
-            return
+            return None
         
         # Extract last digit
         price_str = f"{price:.5f}"
@@ -114,6 +114,9 @@ class DigitPadStrategy:
         else:
             data["streak"]["digit"] = last_digit
             data["streak"]["count"] = 1
+        
+        # Analyze for trading signal
+        return self.analyze(symbol)
     
     def get_heatmap(self, symbol: str) -> List[Dict[str, Any]]:
         """
