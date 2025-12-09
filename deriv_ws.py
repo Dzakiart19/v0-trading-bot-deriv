@@ -1,5 +1,6 @@
 """
 Deriv WebSocket Connection - Native websocket implementation for low-latency trading
+Fixed: Connection readiness barrier and proper state management
 """
 
 import json
@@ -30,6 +31,10 @@ class DerivWebSocket:
         self.authorized = False
         self.token: Optional[str] = None
         self.account_type = "demo"  # demo or real
+        
+        # Connection readiness event
+        self._connection_ready = threading.Event()
+        self._connection_error: Optional[str] = None
         
         # Account info
         self.balance = 0.0
@@ -64,6 +69,9 @@ class DerivWebSocket:
         self._health_thread: Optional[threading.Thread] = None
         self._running = False
         
+        # Last authorization error for detailed feedback
+        self._last_auth_error: Optional[str] = None
+        
         # Callbacks
         self.on_balance_update: Optional[Callable] = None
         self.on_contract_update: Optional[Callable] = None
@@ -76,14 +84,22 @@ class DerivWebSocket:
             self._request_id += 1
             return self._request_id
     
-    def connect(self) -> bool:
-        """Establish WebSocket connection"""
+    def connect(self, timeout: float = 15) -> bool:
+        """Establish WebSocket connection with proper readiness barrier"""
         if self.connected:
             logger.info("Already connected")
             return True
         
+        # Reset state
+        self._connection_ready.clear()
+        self._connection_error = None
+        self.connected = False
+        self.authorized = False
+        
         try:
             url = self.WS_URL.format(app_id=self.app_id)
+            logger.info(f"Connecting to Deriv WebSocket: {url}")
+            
             self.ws = websocket.WebSocketApp(
                 url,
                 on_open=self._on_open,
@@ -96,21 +112,24 @@ class DerivWebSocket:
             self.ws_thread = threading.Thread(target=self._run_forever, daemon=True)
             self.ws_thread.start()
             
-            # Wait for connection
-            timeout = 10
-            start = time.time()
-            while not self.connected and time.time() - start < timeout:
-                time.sleep(0.1)
+            # Wait for connection with proper event barrier
+            if self._connection_ready.wait(timeout=timeout):
+                if self._connection_error:
+                    logger.error(f"Connection failed: {self._connection_error}")
+                    return False
+                
+                if self.connected:
+                    self._start_health_check()
+                    logger.info("WebSocket connection established successfully")
+                    return True
             
-            if self.connected:
-                self._start_health_check()
-                return True
-            
-            logger.error("Connection timeout")
+            logger.error("Connection timeout - WebSocket did not open in time")
+            self._running = False
             return False
             
         except Exception as e:
             logger.error(f"Connection error: {e}")
+            self._running = False
             return False
     
     def _run_forever(self):
@@ -120,6 +139,8 @@ class DerivWebSocket:
                 self.ws.run_forever(ping_interval=30, ping_timeout=10)
             except Exception as e:
                 logger.error(f"WebSocket run error: {e}")
+                self._connection_error = str(e)
+                self._connection_ready.set()
             
             if self._running and self._reconnect_attempts < self._max_reconnect_attempts:
                 self._reconnect_attempts += 1
@@ -131,10 +152,12 @@ class DerivWebSocket:
                 break
     
     def _on_open(self, ws):
-        """Handle connection opened"""
+        """Handle connection opened - signal readiness"""
         logger.info("WebSocket connected")
         self.connected = True
         self._reconnect_attempts = 0
+        self._connection_error = None
+        self._connection_ready.set()  # Signal that connection is ready
         
         if self.on_connection_status:
             self.on_connection_status(True)
@@ -175,6 +198,9 @@ class DerivWebSocket:
     def _on_error(self, ws, error):
         """Handle WebSocket errors"""
         logger.error(f"WebSocket error: {error}")
+        self._connection_error = str(error)
+        self._connection_ready.set()  # Signal error so connect() doesn't hang
+        
         if self.on_error:
             self.on_error(str(error))
     
@@ -183,6 +209,7 @@ class DerivWebSocket:
         logger.info(f"WebSocket closed: {close_status_code} - {close_msg}")
         self.connected = False
         self.authorized = False
+        self._connection_ready.set()  # Signal in case we're waiting
         
         if self.on_connection_status:
             self.on_connection_status(False)
@@ -190,8 +217,12 @@ class DerivWebSocket:
     def _handle_authorize(self, data: dict):
         """Handle authorization response"""
         if "error" in data:
-            logger.error(f"Authorization failed: {data['error']}")
+            error = data["error"]
+            error_msg = error.get("message", "Unknown authorization error")
+            error_code = error.get("code", "UNKNOWN")
+            logger.error(f"Authorization failed: [{error_code}] {error_msg}")
             self.authorized = False
+            self._last_auth_error = f"[{error_code}] {error_msg}"
             return
         
         auth = data.get("authorize", {})
@@ -199,9 +230,18 @@ class DerivWebSocket:
         self.balance = float(auth.get("balance", 0))
         self.currency = auth.get("currency", "USD")
         self.loginid = auth.get("loginid")
-        self.account_id = auth.get("account_list", [{}])[0].get("account_type")
         
-        logger.info(f"Authorized: {self.loginid}, Balance: {self.balance} {self.currency}")
+        # Determine account type from loginid
+        if self.loginid:
+            if self.loginid.startswith("VRTC"):
+                self.account_type = "demo"
+            else:
+                self.account_type = "real"
+        
+        self.account_id = auth.get("account_list", [{}])[0].get("account_type")
+        self._last_auth_error = None
+        
+        logger.info(f"Authorized: {self.loginid}, Balance: {self.balance} {self.currency}, Type: {self.account_type}")
         
         # Subscribe to balance updates
         self._send({"balance": 1, "subscribe": 1})
@@ -340,6 +380,10 @@ class DerivWebSocket:
     
     def _send_and_wait(self, data: dict, timeout: float = 30) -> Optional[dict]:
         """Send message and wait for response"""
+        if not self.connected or not self.ws:
+            logger.error("Cannot send - not connected")
+            return None
+        
         req_id = self._get_request_id()
         data["req_id"] = req_id
         
@@ -353,7 +397,7 @@ class DerivWebSocket:
                 response = self._responses.pop(req_id, None)
                 return response
             else:
-                logger.error(f"Request timeout: {data.get('msg_type', 'unknown')}")
+                logger.error(f"Request timeout for: {list(data.keys())}")
                 return None
         except Exception as e:
             logger.error(f"Send and wait error: {e}")
@@ -361,19 +405,71 @@ class DerivWebSocket:
         finally:
             self._response_events.pop(req_id, None)
     
-    def authorize(self, token: str) -> bool:
-        """Authorize with Deriv API token"""
+    def authorize(self, token: str, timeout: float = 30) -> tuple:
+        """
+        Authorize with Deriv API token
+        
+        Returns:
+            tuple: (success: bool, error_message: Optional[str])
+        """
+        if not self.connected:
+            return False, "WebSocket not connected"
+        
         self.token = token
+        self._last_auth_error = None
         
-        response = self._send_and_wait({"authorize": token})
+        logger.info("Sending authorization request...")
+        response = self._send_and_wait({"authorize": token}, timeout=timeout)
         
-        if response and "authorize" in response:
-            return True
+        if response is None:
+            error_msg = "Authorization request timed out. Please check your internet connection."
+            logger.error(error_msg)
+            self._reset_state()
+            return False, error_msg
         
-        return False
+        if "error" in response:
+            error = response["error"]
+            error_code = error.get("code", "UNKNOWN")
+            error_msg = error.get("message", "Unknown error")
+            
+            # Translate common error codes
+            if error_code == "InvalidToken":
+                error_msg = "Token tidak valid atau sudah kadaluarsa. Silakan buat token baru di https://app.deriv.com/account/api-token"
+            elif error_code == "AuthorizationRequired":
+                error_msg = "Token tidak memiliki izin yang cukup. Pastikan token memiliki izin 'trade' dan 'read'."
+            
+            logger.error(f"Authorization failed: [{error_code}] {error_msg}")
+            self._last_auth_error = error_msg
+            self._reset_state()
+            return False, error_msg
+        
+        if "authorize" in response:
+            logger.info("Authorization successful")
+            return True, None
+        
+        error_msg = "Response tidak dikenali dari server Deriv"
+        logger.error(error_msg)
+        self._reset_state()
+        return False, error_msg
+    
+    def _reset_state(self):
+        """Reset connection state after failure"""
+        self.authorized = False
+        self.token = None
+        self.balance = 0.0
+        self.loginid = None
+        self.account_id = None
+    
+    def get_last_auth_error(self) -> Optional[str]:
+        """Get the last authorization error message"""
+        return self._last_auth_error
     
     def subscribe_ticks(self, symbol: str, callback: Callable) -> bool:
         """Subscribe to tick stream for a symbol"""
+        if not self.connected:
+            logger.error("Cannot subscribe - not connected")
+            return False
+        
         if symbol in self._tick_subscriptions:
             logger.info(f"Already subscribed to {symbol}")
             self._tick_callbacks[symbol] = callback
@@ -399,6 +495,8 @@ class DerivWebSocket:
             self._tick_callbacks[symbol] = callback
             logger.info(f"Subscribed to {symbol}")
             return True
+        elif response and "error" in response:
+            logger.error(f"Subscribe error: {response['error']}")
         
         return False
     
@@ -447,7 +545,11 @@ class DerivWebSocket:
             callback: Callback when contract closes
         """
         if not self.authorized:
-            logger.error("Not authorized")
+            logger.error("Not authorized - cannot place trade")
+            return None
+        
+        if not self.connected:
+            logger.error("Not connected - cannot place trade")
             return None
         
         # Build contract parameters
@@ -465,8 +567,9 @@ class DerivWebSocket:
             parameters["barrier"] = barrier
         
         # Get proposal first
+        logger.info(f"Getting proposal for {contract_type} on {symbol}")
         proposal_req = {"proposal": 1, **parameters}
-        proposal_resp = self._send_and_wait(proposal_req)
+        proposal_resp = self._send_and_wait(proposal_req, timeout=15)
         
         if not proposal_resp or "error" in proposal_resp:
             error = proposal_resp.get("error", {}) if proposal_resp else {}
@@ -481,10 +584,11 @@ class DerivWebSocket:
             return None
         
         # Execute buy
+        logger.info(f"Executing buy for proposal {proposal_id}")
         buy_resp = self._send_and_wait({
             "buy": proposal_id,
             "price": stake
-        })
+        }, timeout=15)
         
         if buy_resp and "buy" in buy_resp:
             buy_data = buy_resp["buy"]
@@ -493,6 +597,7 @@ class DerivWebSocket:
             if callback:
                 self._contract_callbacks[contract_id] = callback
             
+            logger.info(f"Trade executed: contract_id={contract_id}")
             return {
                 "contract_id": contract_id,
                 "buy_price": float(buy_data.get("buy_price", 0)),
@@ -531,13 +636,20 @@ class DerivWebSocket:
         
         # Unsubscribe from all ticks
         for symbol in list(self._tick_subscriptions.keys()):
-            self.unsubscribe_ticks(symbol)
+            try:
+                self.unsubscribe_ticks(symbol)
+            except:
+                pass
         
         if self.ws:
-            self.ws.close()
+            try:
+                self.ws.close()
+            except:
+                pass
         
         self.connected = False
         self.authorized = False
+        self._reset_state()
         
         logger.info("Disconnected")
     

@@ -995,7 +995,8 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
                 pass
             
             if result["success"]:
-                connected = await self._connect_deriv(user.id)
+                # Try to connect to Deriv
+                connected, error_msg = await self._connect_deriv(user.id)
                 
                 if connected:
                     ws = self._ws_connections[user.id]
@@ -1020,35 +1021,63 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
                     
                     await self._show_main_menu(FakeUpdate(), context)
                 else:
+                    # Show detailed error message from Deriv
+                    error_text = error_msg if error_msg else "Gagal terhubung ke Deriv. Silakan coba lagi."
                     await update.effective_chat.send_message(
-                        "❌ Gagal terhubung ke Deriv. Token mungkin tidak valid."
+                        f"❌ <b>Login Gagal</b>\n\n{html.escape(error_text)}",
+                        parse_mode=ParseMode.HTML
                     )
             else:
+                error_text = result.get('error', 'Login gagal')
+                if error_text == "invalid_token_format":
+                    error_text = "Format token tidak valid. Token harus 15-100 karakter alfanumerik."
+                elif error_text == "login_timeout":
+                    error_text = "Waktu login habis. Silakan coba lagi dengan /login"
+                elif error_text == "no_pending_login":
+                    error_text = "Silakan mulai login dengan /login terlebih dahulu."
+                
                 await update.effective_chat.send_message(
-                    f"❌ {result.get('error', 'Login gagal')}"
+                    f"❌ {error_text}"
                 )
     
     # ==================== Deriv Connection ====================
     
-    async def _connect_deriv(self, user_id: int) -> bool:
-        """Connect to Deriv WebSocket"""
+    async def _connect_deriv(self, user_id: int) -> tuple:
+        """
+        Connect to Deriv WebSocket
+        
+        Returns:
+            tuple: (success: bool, error_message: Optional[str])
+        """
         try:
             token = user_auth.get_token(user_id)
             if not token:
-                return False
+                return False, "Token tidak ditemukan. Silakan login ulang."
+            
+            # Close existing connection if any
+            if user_id in self._ws_connections:
+                try:
+                    self._ws_connections[user_id].disconnect()
+                except:
+                    pass
             
             # Create WebSocket connection
             ws = DerivWebSocket()
             
-            # Connect and authorize
+            # Connect to WebSocket
             if not ws.connect():
                 logger.error(f"Failed to connect WebSocket for user {user_id}")
-                return False
+                return False, "Gagal terhubung ke server Deriv. Silakan coba lagi."
             
-            if not ws.authorize(token):
-                logger.error(f"Failed to authorize for user {user_id}")
+            # Authorize with token
+            success, error_msg = ws.authorize(token)
+            
+            if not success:
+                logger.error(f"Failed to authorize for user {user_id}: {error_msg}")
                 ws.disconnect()
-                return False
+                # Clear invalid session
+                user_auth.clear_invalid_session(user_id)
+                return False, error_msg
             
             # Store connection
             self._ws_connections[user_id] = ws
@@ -1073,12 +1102,12 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             except Exception as sync_error:
                 logger.error(f"Failed to sync to session_manager: {sync_error}")
             
-            logger.info(f"User {user_id} connected to Deriv")
-            return True
+            logger.info(f"User {user_id} connected to Deriv successfully")
+            return True, None
             
         except Exception as e:
             logger.error(f"Error connecting to Deriv for user {user_id}: {e}")
-            return False
+            return False, f"Kesalahan koneksi: {str(e)}"
     
     # ==================== Trading ====================
     

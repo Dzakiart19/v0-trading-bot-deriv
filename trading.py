@@ -302,6 +302,10 @@ class TradingManager:
             logger.debug("Tick ignored - waiting for pending trade result")
             return  # Wait for current trade to complete
         
+        if not self.strategy:
+            logger.debug("Tick ignored - no strategy configured")
+            return
+        
         with self._trade_lock:
             # Add tick to strategy and get signal
             signal = self.strategy.add_tick(tick)
@@ -314,6 +318,10 @@ class TradingManager:
     
     def _process_signal(self, signal):
         """Process trading signal automatically"""
+        if not self.config:
+            logger.error("No config available for signal processing")
+            return
+        
         # Check session limits
         if self.config.max_trades and self.session_trades >= self.config.max_trades:
             logger.info("Max trades reached")
@@ -388,7 +396,7 @@ class TradingManager:
             base_stake *= filter_result.adjustments["stake_increase"]
         
         # Martingale adjustment if enabled
-        if self.config.use_martingale and self.martingale_level > 0:
+        if self.config and self.config.use_martingale and self.martingale_level > 0:
             multiplier = 2.0 ** self.martingale_level
             base_stake = self.martingale_base_stake * multiplier
         
@@ -402,6 +410,10 @@ class TradingManager:
     
     def _execute_trade(self, signal, stake: float):
         """Execute a trade"""
+        if not self.config:
+            logger.error("No config available for trade execution")
+            return
+        
         try:
             logger.info(f"Executing trade with stake ${stake:.2f}")
             
@@ -475,10 +487,17 @@ class TradingManager:
         if not self.active_trade:
             return
         
+        if not self.config:
+            logger.error("No config available for contract update")
+            return
+        
         status = contract.get("status")
         
         if status in ["sold", "won", "lost"]:
             profit = contract.get("profit", 0)
+            
+            # Get balance before recording
+            balance_before = self.ws.get_balance() if self.ws else 0
             
             # Update session stats
             self.session_trades += 1
@@ -497,20 +516,38 @@ class TradingManager:
                     if self.martingale_level < self.config.max_martingale_level:
                         self.martingale_level += 1
             
-            # Record in analytics
+            # Get balance after
+            balance_after = self.ws.get_balance() if self.ws else balance_before + profit
+            
+            # Map contract type to direction
+            contract_type = self.active_trade.get("contract_type", "CALL")
+            direction = "BUY" if contract_type in ["CALL", "DIGITOVER", "DIGITEVEN"] else "SELL"
+            
+            # Record in analytics with all required fields
+            now = datetime.now()
             trade_entry = TradeEntry(
-                timestamp=datetime.now(),
+                date=now.strftime("%Y-%m-%d"),
+                time=now.strftime("%H:%M:%S"),
                 symbol=self.config.symbol,
-                contract_type=self.active_trade.get("contract_type", "UNKNOWN"),
+                direction=direction,
+                entry_price=float(contract.get("entry_spot", 0)),
+                exit_price=float(contract.get("exit_tick", 0)),
                 stake=self.active_trade.get("stake", 0),
-                payout=profit if profit > 0 else 0,
+                payout=profit + self.active_trade.get("stake", 0) if profit > 0 else 0,
                 profit=profit,
-                result="WIN" if profit > 0 else "LOSS"
+                result="WIN" if profit > 0 else "LOSS",
+                martingale_level=self.martingale_level,
+                balance_before=balance_before,
+                balance_after=balance_after,
+                win_rate=self._get_win_rate(),
+                strategy=self.config.strategy.value if self.config.strategy else "UNKNOWN",
+                confidence=0.7,  # Default confidence
+                confluence=50.0  # Default confluence
             )
             self.analytics.record_trade(trade_entry)
             
             # Update money manager
-            self.money_manager.record_trade(profit > 0, profit)
+            self.money_manager.record_trade(profit > 0)
             
             logger.info(
                 f"Trade closed | Result: {'WIN' if profit > 0 else 'LOSS'} | "
@@ -554,12 +591,15 @@ class TradingManager:
     
     def _save_recovery_state(self):
         """Save state for crash recovery"""
+        if not self.config:
+            return
+        
         try:
             os.makedirs("logs", exist_ok=True)
             state = {
                 "config": {
                     "symbol": self.config.symbol,
-                    "strategy": self.config.strategy.value,
+                    "strategy": self.config.strategy.value if self.config.strategy else "UNKNOWN",
                     "base_stake": self.config.base_stake,
                     "use_martingale": self.config.use_martingale
                 },

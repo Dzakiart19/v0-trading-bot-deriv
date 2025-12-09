@@ -80,6 +80,10 @@ class MultiIndicatorStrategy:
         self.last_signal_time = 0
         self.last_signal: Optional[Signal] = None
         
+        # Configurable thresholds (can be modified for strategies like Sniper)
+        self.min_confidence = self.MIN_CONFIDENCE
+        self.min_confluence = self.MIN_CONFLUENCE
+        
         # For high/low simulation from tick data
         self.highs: deque = deque(maxlen=200)
         self.lows: deque = deque(maxlen=200)
@@ -279,8 +283,8 @@ class MultiIndicatorStrategy:
         # Calculate confidence
         confidence = min(1.0, confluence / 100 + 0.1)
         
-        # Check thresholds
-        if confluence < self.MIN_CONFLUENCE or confidence < self.MIN_CONFIDENCE:
+        # Check thresholds (use instance variables for configurability)
+        if confluence < self.min_confluence or confidence < self.min_confidence:
             return None
         
         if direction == "HOLD":

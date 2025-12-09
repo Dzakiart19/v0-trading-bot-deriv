@@ -75,6 +75,30 @@ class TradingAnalytics:
         self.hourly_profits = {h: 0.0 for h in range(24)}
         logger.info("Analytics session started")
     
+    def end_session(self) -> Dict[str, Any]:
+        """End analytics session and return summary"""
+        summary = self.get_session_summary()
+        
+        # Export session data if there were trades
+        if self.session_trades > 0:
+            try:
+                self.export_to_json()
+            except Exception as e:
+                logger.error(f"Failed to export session: {e}")
+        
+        # Reset session state
+        session_duration = None
+        if self.session_start:
+            session_duration = (datetime.now() - self.session_start).total_seconds()
+        
+        self.session_start = None
+        self.session_trades = 0
+        
+        summary["session_duration_seconds"] = session_duration
+        logger.info(f"Analytics session ended: {self.session_trades} trades")
+        
+        return summary
+    
     def record_trade(self, trade: TradeEntry):
         """Record a trade for analytics"""
         self.trades.append(trade)
