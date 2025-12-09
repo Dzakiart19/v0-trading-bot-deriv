@@ -774,23 +774,22 @@ class TradingManager:
             if self.state == TradingState.RUNNING and self.config:
                 logger.info("Reconnected while running - resuming trading session...")
                 
-                # Re-subscribe to ticks
-                try:
-                    self.ws.subscribe_ticks(self.config.symbol, self._on_tick)
-                    logger.info(f"Re-subscribed to {self.config.symbol} after reconnect")
-                    
-                    # Reset timeout counters
-                    self._consecutive_timeouts = 0
-                    self._trading_paused_due_to_timeout = False
-                    self._last_activity_time = time.time()
-                    
-                    if self.on_progress:
-                        self.on_progress({
-                            "type": "reconnected",
-                            "message": "✅ Koneksi pulih, trading dilanjutkan..."
-                        })
-                except Exception as e:
-                    logger.error(f"Failed to re-subscribe after reconnect: {e}")
+                # Update tick callback (subscription is already handled by deriv_ws._handle_authorize)
+                # Just ensure our callback is registered
+                if hasattr(self.ws, '_tick_callbacks'):
+                    self.ws._tick_callbacks[self.config.symbol] = self._on_tick
+                    logger.info(f"Updated tick callback for {self.config.symbol}")
+                
+                # Reset timeout counters
+                self._consecutive_timeouts = 0
+                self._trading_paused_due_to_timeout = False
+                self._last_activity_time = time.time()
+                
+                if self.on_progress:
+                    self.on_progress({
+                        "type": "reconnected",
+                        "message": "✅ Koneksi pulih, trading dilanjutkan..."
+                    })
         else:
             logger.warning("Connection status: DISCONNECTED")
             if self.on_progress:

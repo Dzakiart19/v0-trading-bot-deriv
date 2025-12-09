@@ -189,9 +189,12 @@ class DerivWebSocket:
             logger.info("Re-authorizing after reconnect...")
             try:
                 self._send({"authorize": self.token})
+                # Don't signal connection status yet - wait for authorization in _handle_authorize
+                return
             except Exception as e:
                 logger.error(f"Re-authorization send failed: {e}")
         
+        # Only signal connection status if not re-authorizing
         if self.on_connection_status:
             self.on_connection_status(True)
     
@@ -245,6 +248,11 @@ class DerivWebSocket:
         self.authorized = False
         self._connection_ready.set()  # Signal in case we're waiting
         
+        # Clear old subscriptions so new ones can be established after reconnect
+        # Keep the callbacks so they can be re-registered
+        self._tick_subscriptions.clear()
+        logger.info("Cleared tick subscriptions for fresh re-subscribe after reconnect")
+        
         if self.on_connection_status:
             self.on_connection_status(False)
     
@@ -279,11 +287,35 @@ class DerivWebSocket:
         
         # Subscribe to balance updates
         self._send({"balance": 1, "subscribe": 1})
+        
+        # Re-subscribe to ticks for all symbols that had callbacks (after reconnect)
+        if self._tick_callbacks:
+            logger.info(f"Re-subscribing to {len(self._tick_callbacks)} symbols after authorization...")
+            for symbol in list(self._tick_callbacks.keys()):
+                if symbol not in self._tick_subscriptions:
+                    logger.info(f"Re-subscribing to ticks for {symbol}...")
+                    self._send({
+                        "ticks": symbol,
+                        "subscribe": 1
+                    })
+        
+        # Signal connection status AFTER successful authorization (for reconnect scenarios)
+        if self.on_connection_status:
+            logger.info("Signaling connection ready after authorization")
+            self.on_connection_status(True)
     
     def _handle_tick(self, data: dict):
         """Handle tick data"""
         tick = data.get("tick", {})
         symbol = tick.get("symbol")
+        
+        # Update subscription tracking if this is a new subscription
+        subscription = data.get("subscription", {})
+        if subscription and symbol:
+            sub_id = subscription.get("id")
+            if sub_id and symbol not in self._tick_subscriptions:
+                self._tick_subscriptions[symbol] = sub_id
+                logger.info(f"Tick subscription confirmed for {symbol} (id: {sub_id})")
         
         if symbol:
             tick_data = {
