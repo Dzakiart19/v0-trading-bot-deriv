@@ -420,12 +420,17 @@ class TradingManager:
             duration_unit = self.config.duration_unit
             
             # Validate duration for symbol
-            valid_duration = validate_duration_for_symbol(
+            validated_duration = validate_duration_for_symbol(
                 self.config.symbol, duration, duration_unit
             )
-            if valid_duration:
-                duration, duration_unit = valid_duration
+
+            if validated_duration:
+                duration, duration_unit = validated_duration
             else:
+                logger.warning(
+                    f"Invalid duration ({duration} {duration_unit}) for {self.config.symbol}. "
+                    f"Using default."
+                )
                 duration, duration_unit = get_default_duration(self.config.symbol)
             
             # Place the trade

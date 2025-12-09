@@ -1185,10 +1185,13 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         
         strategy_info = STRATEGIES.get(selected_strategy, {})
         
+        strategy_name = html.escape(strategy_info.get('name', selected_strategy))
+        symbol_name = html.escape(selected_symbol)
+
         await query.edit_message_text(
             f"▶️ <b>Trading Dimulai!</b>\n\n"
-            f"📊 Strategi: {strategy_info.get('icon', '')} {strategy_info.get('name', selected_strategy)}\n"
-            f"💱 Symbol: {selected_symbol}\n"
+            f"📊 Strategi: {strategy_info.get('icon', '')} {strategy_name}\n"
+            f"💱 Symbol: {symbol_name}\n"
             f"💵 Stake: $1.00\n\n"
             f"Gunakan /status untuk melihat progress\n"
             f"Gunakan /stop untuk menghentikan",
@@ -1243,7 +1246,7 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
                 tm.stop()
                 break
     
-    async def _send_rate_limited(self, chat_id: int, text: str):
+    async def _send_rate_limited(self, chat_id: int, text: str, parse_mode: Optional[str] = None):
         """Send message with rate limiting"""
         now = time.time()
         last_time = self._last_message_time.get(chat_id, 0)
@@ -1254,7 +1257,7 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         self._last_message_time[chat_id] = now
         
         try:
-            await self.application.bot.send_message(chat_id, text)
+            await self.application.bot.send_message(chat_id, text, parse_mode=parse_mode)
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
     
@@ -1263,7 +1266,7 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
     async def _notify_trade_opened(self, chat_id: int, trade_info: dict):
         """Notify user when a trade is opened"""
         try:
-            contract_type = trade_info.get('contract_type', 'N/A')
+            contract_type = html.escape(trade_info.get('contract_type', 'N/A'))
             stake = trade_info.get('stake', 0)
             buy_price = trade_info.get('buy_price', stake)
             
@@ -1273,7 +1276,7 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
                 f"💵 Stake: ${buy_price:.2f}"
             )
             
-            await self.application.bot.send_message(
+            await self._send_rate_limited(
                 chat_id, text, parse_mode=ParseMode.HTML
             )
         except Exception as e:
@@ -1308,9 +1311,11 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
     async def _notify_trading_error(self, chat_id: int, error_msg: str):
         """Notify user of trading error"""
         try:
+            escaped_msg = html.escape(error_msg)
             await self.application.bot.send_message(
                 chat_id,
-                f"⚠️ Trading Error: {error_msg}"
+                f"⚠️ <b>Trading Error:</b>\n\n<pre>{escaped_msg}</pre>",
+                parse_mode=ParseMode.HTML
             )
         except Exception as e:
             logger.error(f"Failed to notify trading error: {e}")
@@ -1335,12 +1340,12 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         if not chat_id:
             return
         
-        direction = signal.get('direction', 'N/A')
+        direction = html.escape(signal.get('direction', 'N/A'))
         confidence = signal.get('confidence', 0)
         
         if confidence >= 80:
-            text = f"🎯 High Confidence Signal: {direction} ({confidence}%)"
-            await self._send_rate_limited(chat_id, text)
+            text = f"🎯 <b>High Confidence Signal:</b> {direction} ({confidence:.1f}%)"
+            await self._send_rate_limited(chat_id, text, parse_mode=ParseMode.HTML)
 
 
 # Create bot instance function

@@ -755,26 +755,23 @@
         
         // Check if user should be redirected to a different strategy page
         async function checkStrategyRedirect() {
-            const tg = window.Telegram?.WebApp;
-            const tgUser = tg?.initDataUnsafe?.user;
-            
-            if (tgUser?.id) {
-                try {
-                    const resp = await fetch(`/api/telegram/get-strategy?telegram_id=${tgUser.id}`);
-                    const data = await resp.json();
-                    
-                    if (data.strategy && data.route) {
-                        const currentPath = window.location.pathname;
-                        if (!currentPath.includes(data.route.replace('/', ''))) {
-                            window.location.href = data.route;
-                            return true;
-                        }
-                    }
-                } catch (e) {
-                    console.error('Failed to check strategy:', e);
+            const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+            if (!tgUser?.id) return false;
+
+            try {
+                const response = await fetch(`/api/telegram/get-strategy?telegram_id=${tgUser.id}`);
+                const data = await response.json();
+
+                // If a strategy is set and the current page doesn't match the strategy's route, redirect.
+                if (data.strategy && data.route && window.location.pathname !== data.route) {
+                    window.location.href = data.route;
+                    return true; // Indicates a redirect is happening.
                 }
+            } catch (error) {
+                console.error('Failed to fetch strategy for redirect:', error);
             }
-            return false;
+
+            return false; // No redirect needed.
         }
         
         // Initialize with Telegram token check (secured with initData)
