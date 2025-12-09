@@ -206,10 +206,15 @@ class DerivWebSocket:
             msg_type = data.get("msg_type")
             req_id = data.get("req_id")
             
-            # Handle request responses
-            if req_id and req_id in self._response_events:
-                self._responses[req_id] = data
-                self._response_events[req_id].set()
+            # Handle request responses - ensure req_id type matches (convert to int)
+            if req_id is not None:
+                req_id_int = int(req_id) if isinstance(req_id, str) else req_id
+                if req_id_int in self._response_events:
+                    self._responses[req_id_int] = data
+                    self._response_events[req_id_int].set()
+                    logger.debug(f"Response received for req_id {req_id_int}: {msg_type}")
+                elif msg_type in ("proposal", "buy"):
+                    logger.warning(f"Response for {msg_type} with req_id {req_id_int} has no pending event (waiting: {list(self._response_events.keys())})")
             
             # Handle specific message types
             if msg_type == "authorize":
