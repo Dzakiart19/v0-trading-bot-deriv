@@ -189,6 +189,15 @@ async def serve_index():
     except FileNotFoundError:
         return HTMLResponse(content="<h1>Index not found</h1>", status_code=404)
 
+@app.get("/index.html", response_class=HTMLResponse)
+async def serve_index_html():
+    """Serve index.html - alias for / route"""
+    try:
+        with open("webapps/index.html", "r") as f:
+            return HTMLResponse(content=f.read(), headers={"Cache-Control": "no-cache"})
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Index not found</h1>", status_code=404)
+
 @app.get("/terminal", response_class=HTMLResponse)
 async def serve_terminal():
     """Serve Terminal strategy page"""
