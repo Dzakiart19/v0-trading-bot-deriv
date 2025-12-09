@@ -1,0 +1,93 @@
+DERIV TRADING BOT - PERBAIKAN TRADING TIMEOUT
+
+MASALAH DITEMUKAN:
+1. Request proposal timeout konsisten (15 detik)
+2. Trade tidak pernah berhasil dibuka meskipun signal valid
+3. WebSocket reconnect tapi tetap timeout pada proposal
+4. Strategy mengirim signal tapi execution gagal
+
+SOLUSI DIPERLUKAN:
+
+1. PERBAIKI DERIV WEBSOCKET TIMEOUT
+   - Tambah retry mechanism untuk proposal request
+   - Reduce timeout dari 15s ke 10s
+   - Implement exponential backoff untuk retry
+   - Handle timeout gracefully tanpa crash
+   - Log detail error response dari Deriv API
+
+2. TAMBAH CONNECTION HEALTH CHECK
+   - Ping Deriv sebelum place trade
+   - Verify authorized state sebelum proposal
+   - Auto-reconnect jika detected unresponsive
+   - Queue trade jika connection unstable
+
+3. IMPROVE ERROR HANDLING
+   - Catch timeout di level TradingManager
+   - Notify user jika multiple timeout
+   - Pause trading jika 3x consecutive timeout
+   - Resume setelah connection stable
+
+4. OPTIMIZE PROPOSAL REQUEST
+   - Simplify proposal parameters
+   - Remove unnecessary fields
+   - Use cached proposal jika available
+   - Parallel proposal + buy untuk speed
+
+5. ADD FALLBACK MECHANISM
+   - Jika proposal timeout, retry 2x dengan delay 2s
+   - Jika masih fail, skip signal dan wait next
+   - Log failed signal untuk debugging
+   - Alert user via Telegram jika stuck
+
+6. ENHANCE LOGGING
+   - Log exact proposal request sent
+   - Log Deriv API response time
+   - Track success/fail rate per session
+   - Expose metrics via /api/debug endpoint
+
+7. FIX TELEGRAM NOTIFICATION
+   - Send "Analyzing market..." setelah warmup
+   - Send "Waiting for signal..." jika no trade 2min
+   - Send timeout warning jika detected
+   - Send "Trading paused - connection issue" jika stuck
+
+8. ADD WATCHDOG TIMER
+   - Detect jika no trade activity 5 minutes
+   - Auto-restart trading session
+   - Clear stuck state
+   - Notify user tentang restart
+
+IMPLEMENTASI PRIORITAS:
+[HIGH] Fix proposal timeout with retry
+[HIGH] Add connection health check before trade
+[HIGH] Improve error handling in _execute_trade
+[MEDIUM] Add watchdog for stuck detection
+[MEDIUM] Enhanced Telegram notifications
+[LOW] Add debug metrics endpoint
+
+TESTING CHECKLIST:
+- Test proposal request dengan retry
+- Verify timeout handling tidak crash bot
+- Check notification diterima user
+- Validate auto-recovery dari stuck state
+- Monitor Deriv API response times
+
+FILE YANG PERLU DIUBAH:
+1. deriv_ws.py - Fix timeout & retry logic
+2. trading.py - Add health check & error handling
+3. telegram_bot.py - Enhanced notifications
+4. web_server.py - Add debug endpoint
+
+EXPECTED BEHAVIOR SETELAH FIX:
+- Trade execution <5 detik dari signal
+- Auto-retry jika timeout 1-2x
+- User notified jika masalah connection
+- Trading pause otomatis jika stuck
+- Resume otomatis setelah stable
+
+VALIDASI SUCCESS:
+- Trade berhasil open dalam 10 detik
+- Telegram dapat notif "Trade opened"
+- Logs tidak ada "Request timeout"
+- Win/Loss notification muncul
+- Status /status menunjukkan progress
