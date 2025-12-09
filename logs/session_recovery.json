@@ -1,0 +1,1 @@
+{"config": {"symbol": "R_100", "strategy": "AMT", "base_stake": 1.0, "use_martingale": true}, "session": {"trades": 1, "wins": 0, "losses": 1, "profit": -1.2, "starting_balance": 9662.02, "martingale_level": 1}, "timestamp": "2025-12-09T17:37:22.402675"}

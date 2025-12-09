@@ -926,6 +926,7 @@ class DerivWebSocket:
             return None
         
         # Build accumulator proposal - Deriv API uses specific format
+        # Note: For ACCU contracts, only take_profit is allowed in limit_order (stop_loss is NOT valid)
         parameters = {
             "contract_type": "ACCU",
             "symbol": symbol,
@@ -934,8 +935,7 @@ class DerivWebSocket:
             "amount": round(float(stake), 2),
             "growth_rate": growth_rate,
             "limit_order": {
-                "take_profit": round(stake * 2, 2),  # Default 2x take profit
-                "stop_loss": round(stake * 0.5, 2)   # Default 50% stop loss
+                "take_profit": round(stake * 2, 2)  # Default 2x take profit (stop_loss not allowed for ACCU)
             }
         }
         

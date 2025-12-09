@@ -167,6 +167,7 @@ class TradingManager:
             self.strategy = AccumulatorStrategy()  # No symbol in constructor
         elif config.strategy == StrategyType.SNIPER:
             self.strategy = SniperStrategy(config.symbol)
+            self.strategy.start_trading()  # Enable automatic trading for Sniper
         else:
             self.strategy = MultiIndicatorStrategy(config.symbol)
         

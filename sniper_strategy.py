@@ -105,8 +105,8 @@ class SniperStrategy:
         self.last_signal_time = 0
         self.signal_cooldown = 30  # Long cooldown for sniper
         
-        # Trading state
-        self.is_trading = False
+        # Trading state - Default to True for automatic trading
+        self.is_trading = True
         self.ping_ms = 0
     
     def add_tick(self, tick: Dict[str, Any]) -> Optional[SniperSignal]:
