@@ -99,7 +99,8 @@ class AccumulatorStrategy:
         self.positions: Dict[str, Dict] = {}
         
         # Default settings
-        self.default_tp_multiplier = 2.0  # 2x stake
+        # Take profit after 10 successful ticks (accumulator grows ~10-20% per tick at 1-2%)
+        self.default_tp_multiplier = 1.5  # Conservative 1.5x stake TP (easier to hit)
         self.default_sl_multiplier = 0.5  # 50% stake
         
         # Signal history
@@ -244,20 +245,24 @@ class AccumulatorStrategy:
             return "HIGH"
     
     def _select_growth_rate(self, trend: str, volatility: str) -> int:
-        """Select optimal growth rate based on conditions"""
-        # Strong trend + Low volatility = aggressive
+        """Select optimal growth rate based on conditions
+        
+        Conservative approach: Lower growth rates = wider barriers = less barrier hits
+        Higher growth = more risk of barrier hit but faster accumulation
+        """
+        # Conservative strategy - prefer 1-2% for stability
         if trend == "STRONG" and volatility == "LOW":
-            return 5
+            return 2  # Was 5 - too aggressive, causes frequent barrier hits
         elif trend == "STRONG" and volatility == "MEDIUM":
-            return 4
+            return 2  # Was 4
         elif trend == "STRONG" and volatility == "HIGH":
-            return 3
+            return 1  # Was 3
         elif trend == "MODERATE" and volatility == "LOW":
-            return 3
+            return 2  # Was 3
         elif trend == "MODERATE" and volatility == "MEDIUM":
-            return 2
+            return 1  # Was 2
         else:
-            return 1
+            return 1  # Stay at 1% for risky conditions
     
     def _calculate_confidence(self, trend: str, volatility: str) -> float:
         """Calculate signal confidence"""

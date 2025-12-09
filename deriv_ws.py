@@ -927,6 +927,10 @@ class DerivWebSocket:
         
         # Build accumulator proposal - Deriv API uses specific format
         # Note: For ACCU contracts, only take_profit is allowed in limit_order (stop_loss is NOT valid)
+        # Take profit = stake * 0.5 means we lock in 50% profit (easier to achieve with fewer ticks)
+        # This helps ensure the bot actually gets WIN results instead of hitting barriers
+        take_profit_amount = round(stake * 0.5, 2)  # 50% profit target (achievable in ~5-8 ticks at 1-2%)
+        
         parameters = {
             "contract_type": "ACCU",
             "symbol": symbol,
@@ -935,9 +939,11 @@ class DerivWebSocket:
             "amount": round(float(stake), 2),
             "growth_rate": growth_rate,
             "limit_order": {
-                "take_profit": round(stake * 2, 2)  # Default 2x take profit (stop_loss not allowed for ACCU)
+                "take_profit": take_profit_amount  # Conservative TP for more wins
             }
         }
+        
+        logger.info(f"Accumulator TP target: ${take_profit_amount} (50% of stake ${stake})")
         
         logger.info(f"Accumulator proposal: {symbol} stake={stake} growth_rate={growth_rate*100}%")
         
