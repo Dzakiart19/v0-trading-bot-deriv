@@ -522,6 +522,64 @@ class DerivWebSocket:
             return list(self._tick_history[symbol])[-count:]
         return []
     
+    def preload_data(self, symbol: str, count: int = 150, timeout: float = 15) -> bool:
+        """
+        Preload historical tick data before trading starts.
+        This ensures indicators have enough data to calculate properly.
+        
+        Args:
+            symbol: Trading symbol to preload
+            count: Number of historical ticks to load (default 150)
+            timeout: Timeout in seconds
+            
+        Returns:
+            bool: True if preload successful
+        """
+        if not self.connected:
+            logger.error("Cannot preload - not connected")
+            return False
+        
+        logger.info(f"Preloading {count} historical ticks for {symbol}...")
+        
+        response = self._send_and_wait({
+            "ticks_history": symbol,
+            "count": count,
+            "end": "latest",
+            "style": "ticks"
+        }, timeout=timeout)
+        
+        if response and "history" in response:
+            history = response.get("history", {})
+            prices = history.get("prices", [])
+            times = history.get("times", [])
+            
+            if symbol not in self._tick_history:
+                self._tick_history[symbol] = deque(maxlen=200)
+            
+            for i, price in enumerate(prices):
+                tick_data = {
+                    "symbol": symbol,
+                    "quote": float(price),
+                    "epoch": times[i] if i < len(times) else None
+                }
+                self._tick_history[symbol].append(tick_data)
+            
+            logger.info(f"Preloaded {len(prices)} ticks for {symbol}")
+            return len(prices) > 0
+        
+        if response and "error" in response:
+            logger.error(f"Preload error: {response['error']}")
+        else:
+            logger.error("Preload timeout or no response")
+        
+        return False
+    
+    def is_data_ready(self, symbol: str, min_ticks: int = 100) -> bool:
+        """Check if enough data is available for trading"""
+        if symbol in self._tick_history:
+            return len(self._tick_history[symbol]) >= min_ticks
+        return False
+    
     def buy_contract(
         self,
         contract_type: str,

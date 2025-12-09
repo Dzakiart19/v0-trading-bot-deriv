@@ -510,16 +510,63 @@
 
         function getTelegramId() { return window.Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }
 
+        let wsReconnectAttempts = 0;
+        const maxWsReconnectAttempts = 10;
+        
         function connectBotWebSocket() {
+            if (!telegramId) {
+                console.log('No telegram_id, waiting...');
+                setTimeout(connectBotWebSocket, 2000);
+                return;
+            }
+            
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${wsProtocol}//${window.location.host}/ws/stream`;
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/stream?telegram_id=${telegramId}`;
             updateWsStatus('connecting');
-            botWs = new WebSocket(wsUrl);
-            botWs.onopen = () => { updateWsStatus('connected'); if (telegramId) botWs.send(JSON.stringify({ type: 'subscribe', telegram_id: telegramId })); };
-            botWs.onmessage = (event) => { try { handleTradingEvent(JSON.parse(event.data)); } catch (e) {} };
-            botWs.onclose = () => { updateWsStatus('disconnected'); setTimeout(connectBotWebSocket, 5000); };
-            botWs.onerror = () => updateWsStatus('disconnected');
+            
+            try {
+                botWs = new WebSocket(wsUrl);
+                
+                botWs.onopen = () => {
+                    wsReconnectAttempts = 0;
+                    updateWsStatus('connected');
+                    botWs.send(JSON.stringify({ type: 'subscribe', telegram_id: telegramId }));
+                };
+                
+                botWs.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleTradingEvent(data);
+                        if (data.type === 'pong') console.log('WS pong received');
+                    } catch (e) { console.error('WS message error:', e); }
+                };
+                
+                botWs.onclose = (event) => {
+                    updateWsStatus('disconnected');
+                    console.log('WS closed:', event.code, event.reason);
+                    if (wsReconnectAttempts < maxWsReconnectAttempts) {
+                        wsReconnectAttempts++;
+                        const delay = Math.min(1000 * Math.pow(1.5, wsReconnectAttempts), 30000);
+                        setTimeout(connectBotWebSocket, delay);
+                    }
+                };
+                
+                botWs.onerror = (error) => {
+                    console.error('WS error:', error);
+                    updateWsStatus('disconnected');
+                };
+            } catch (e) {
+                console.error('WS connection failed:', e);
+                updateWsStatus('disconnected');
+                setTimeout(connectBotWebSocket, 5000);
+            }
         }
+        
+        setInterval(() => {
+            if (botWs && botWs.readyState === WebSocket.OPEN) {
+                botWs.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 30000);
 
         function updateWsStatus(status) {
             const dot = document.getElementById('wsDot');

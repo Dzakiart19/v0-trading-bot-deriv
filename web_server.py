@@ -74,7 +74,7 @@ class ConnectionManager:
         self._heartbeat_interval = 30  # Send ping every 30 seconds
         self._connection_timeout = 90  # Disconnect if no pong for 90 seconds
     
-    async def connect(self, websocket: WebSocket, user_id: str, telegram_id: int = None):
+    async def connect(self, websocket: WebSocket, user_id: str, telegram_id: Optional[int] = None):
         await websocket.accept()
         self.active_connections[user_id] = websocket
         self.connection_info[user_id] = {
