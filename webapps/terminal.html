@@ -253,6 +253,53 @@
             cursor: not-allowed;
             transform: none;
         }
+        .auto-trade-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+        .auto-trade-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .auto-trade-header h3 {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-badge.running {
+            background: rgba(57, 211, 83, 0.15);
+            color: var(--accent-green);
+            border: 1px solid var(--accent-green);
+        }
+        .status-badge.stopped {
+            background: rgba(248, 81, 73, 0.15);
+            color: var(--accent-red);
+            border: 1px solid var(--accent-red);
+        }
+        .status-badge.connecting {
+            background: rgba(210, 153, 34, 0.15);
+            color: var(--accent-yellow);
+            border: 1px solid var(--accent-yellow);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
         .auto-trade-toggle {
             display: flex;
             align-items: center;
@@ -260,7 +307,6 @@
             padding: 12px;
             background: var(--bg-card);
             border-radius: 8px;
-            margin-top: 12px;
         }
         .toggle-switch {
             width: 50px;
@@ -288,6 +334,34 @@
         .toggle-switch.active::after {
             transform: translateX(24px);
         }
+        .toggle-switch.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .auto-trade-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .auto-stat-item {
+            background: var(--bg-card);
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .auto-stat-item .label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+        .auto-stat-item .value {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-top: 2px;
+        }
+        .auto-stat-item .value.profit { color: var(--accent-green); }
+        .auto-stat-item .value.loss { color: var(--accent-red); }
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -335,6 +409,23 @@
         }
         .trade-item .result.win { color: var(--accent-green); }
         .trade-item .result.loss { color: var(--accent-red); }
+        .ws-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 8px;
+        }
+        .ws-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-red);
+        }
+        .ws-dot.connected {
+            background: var(--accent-green);
+        }
     </style>
 </head>
 <body>
@@ -402,6 +493,38 @@
         </div>
 
         <div class="control-panel">
+            <div class="auto-trade-section">
+                <div class="auto-trade-header">
+                    <h3>Auto Trade <span class="status-badge stopped" id="autoTradeStatus">STOPPED</span></h3>
+                </div>
+                <div class="auto-trade-toggle">
+                    <span>Enable Auto Trading</span>
+                    <div class="toggle-switch" id="autoTradeToggle" onclick="toggleAutoTrade()"></div>
+                </div>
+                <div class="auto-trade-stats">
+                    <div class="auto-stat-item">
+                        <div class="label">Total Trades</div>
+                        <div class="value" id="autoTotalTrades">0</div>
+                    </div>
+                    <div class="auto-stat-item">
+                        <div class="label">Win Rate</div>
+                        <div class="value" id="autoWinRate">0%</div>
+                    </div>
+                    <div class="auto-stat-item">
+                        <div class="label">Profit/Loss</div>
+                        <div class="value profit" id="autoProfitLoss">$0.00</div>
+                    </div>
+                    <div class="auto-stat-item">
+                        <div class="label">Balance</div>
+                        <div class="value" id="autoBalance">$0.00</div>
+                    </div>
+                </div>
+                <div class="ws-status">
+                    <div class="ws-dot" id="wsDot"></div>
+                    <span id="wsStatusText">Disconnected</span>
+                </div>
+            </div>
+
             <div class="panel-card">
                 <h3>Signal Analysis</h3>
                 <div class="signal-display">
@@ -439,10 +562,6 @@
                     <button class="trade-btn put" id="putBtn" onclick="placeTrade('PUT')">
                         PUT ↓
                     </button>
-                </div>
-                <div class="auto-trade-toggle">
-                    <span>Auto Trade</span>
-                    <div class="toggle-switch" id="autoTradeToggle" onclick="toggleAutoTrade()"></div>
                 </div>
             </div>
 
@@ -482,34 +601,235 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
         const DERIV_APP_ID = 1089;
+        const STRATEGY_NAME = 'terminal';
         let ws = null;
+        let botWs = null;
         let authToken = null;
+        let telegramId = null;
         let currentSymbol = 'R_100';
         let ticks = [];
         let isAutoTrading = false;
         let isTrading = false;
+        let statusSyncInterval = null;
         
-        // Stats
-        let stats = {
-            wins: 0,
-            losses: 0,
-            profit: 0,
-            trades: []
-        };
+        let stats = { wins: 0, losses: 0, profit: 0, trades: [] };
         
-        // Indicators data
         let indicators = {
-            rsi: 50,
-            macd: 0,
-            ema_fast: 0,
-            ema_slow: 0,
-            stoch_k: 50,
-            stoch_d: 50,
-            adx: 25,
-            bb_upper: 0,
-            bb_middle: 0,
-            bb_lower: 0
+            rsi: 50, macd: 0, ema_fast: 0, ema_slow: 0,
+            stoch_k: 50, stoch_d: 50, adx: 25,
+            bb_upper: 0, bb_middle: 0, bb_lower: 0
         };
+
+        function getTelegramId() {
+            return window.Telegram?.WebApp?.initDataUnsafe?.user?.id || null;
+        }
+
+        function connectBotWebSocket() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/stream`;
+            
+            updateWsStatus('connecting');
+            
+            botWs = new WebSocket(wsUrl);
+            
+            botWs.onopen = () => {
+                console.log('Bot WebSocket connected');
+                updateWsStatus('connected');
+                if (telegramId) {
+                    botWs.send(JSON.stringify({ type: 'subscribe', telegram_id: telegramId }));
+                }
+            };
+            
+            botWs.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleTradingEvent(data);
+                } catch (e) {
+                    console.error('Error parsing WebSocket message:', e);
+                }
+            };
+            
+            botWs.onclose = () => {
+                console.log('Bot WebSocket disconnected');
+                updateWsStatus('disconnected');
+                setTimeout(connectBotWebSocket, 5000);
+            };
+            
+            botWs.onerror = (err) => {
+                console.error('Bot WebSocket error:', err);
+                updateWsStatus('disconnected');
+            };
+        }
+
+        function updateWsStatus(status) {
+            const dot = document.getElementById('wsDot');
+            const text = document.getElementById('wsStatusText');
+            
+            if (status === 'connected') {
+                dot.classList.add('connected');
+                text.textContent = 'Connected';
+            } else if (status === 'connecting') {
+                dot.classList.remove('connected');
+                text.textContent = 'Connecting...';
+            } else {
+                dot.classList.remove('connected');
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        function handleTradingEvent(data) {
+            console.log('Trading event:', data);
+            
+            switch(data.type) {
+                case 'trade_opened':
+                    console.log('Trade opened:', data);
+                    break;
+                case 'trade_closed':
+                    console.log('Trade closed:', data);
+                    syncTradingStatus();
+                    break;
+                case 'status_update':
+                    updateTradingUI(data);
+                    break;
+                case 'error':
+                    console.error('Trading error:', data.message);
+                    break;
+            }
+        }
+
+        async function startAutoTrade() {
+            if (!telegramId) {
+                alert('Please login via Telegram first');
+                return;
+            }
+
+            const stake = parseFloat(document.getElementById('stakeAmount').value);
+            
+            try {
+                updateAutoTradeStatus('connecting');
+                
+                const response = await fetch('/api/trading/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        telegram_id: telegramId,
+                        symbol: currentSymbol,
+                        strategy: STRATEGY_NAME,
+                        stake: stake
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isAutoTrading = true;
+                    document.getElementById('autoTradeToggle').classList.add('active');
+                    updateAutoTradeStatus('running');
+                    startStatusSync();
+                } else {
+                    alert(data.error || 'Failed to start auto trading');
+                    document.getElementById('autoTradeToggle').classList.remove('active');
+                    updateAutoTradeStatus('stopped');
+                }
+            } catch (error) {
+                console.error('Error starting auto trade:', error);
+                alert('Failed to start auto trading');
+                document.getElementById('autoTradeToggle').classList.remove('active');
+                updateAutoTradeStatus('stopped');
+            }
+        }
+
+        async function stopAutoTrade() {
+            if (!telegramId) return;
+
+            try {
+                const response = await fetch('/api/trading/stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ telegram_id: telegramId })
+                });
+                
+                const data = await response.json();
+                
+                isAutoTrading = false;
+                document.getElementById('autoTradeToggle').classList.remove('active');
+                updateAutoTradeStatus('stopped');
+                stopStatusSync();
+                
+            } catch (error) {
+                console.error('Error stopping auto trade:', error);
+            }
+        }
+
+        function toggleAutoTrade() {
+            if (!telegramId) {
+                alert('Please login via Telegram first');
+                return;
+            }
+            
+            if (isAutoTrading) {
+                stopAutoTrade();
+            } else {
+                startAutoTrade();
+            }
+        }
+
+        async function syncTradingStatus() {
+            if (!telegramId) return;
+
+            try {
+                const response = await fetch(`/api/trading/status?telegram_id=${telegramId}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateTradingUI(data);
+                }
+            } catch (error) {
+                console.error('Error syncing trading status:', error);
+            }
+        }
+
+        function startStatusSync() {
+            if (statusSyncInterval) clearInterval(statusSyncInterval);
+            statusSyncInterval = setInterval(syncTradingStatus, 5000);
+        }
+
+        function stopStatusSync() {
+            if (statusSyncInterval) {
+                clearInterval(statusSyncInterval);
+                statusSyncInterval = null;
+            }
+        }
+
+        function updateTradingUI(data) {
+            if (data.is_running !== undefined) {
+                isAutoTrading = data.is_running;
+                document.getElementById('autoTradeToggle').classList.toggle('active', isAutoTrading);
+                updateAutoTradeStatus(isAutoTrading ? 'running' : 'stopped');
+            }
+            
+            if (data.total_trades !== undefined) {
+                document.getElementById('autoTotalTrades').textContent = data.total_trades;
+            }
+            if (data.win_rate !== undefined) {
+                document.getElementById('autoWinRate').textContent = `${data.win_rate.toFixed(1)}%`;
+            }
+            if (data.profit !== undefined) {
+                const profitEl = document.getElementById('autoProfitLoss');
+                profitEl.textContent = `$${data.profit.toFixed(2)}`;
+                profitEl.className = `value ${data.profit >= 0 ? 'profit' : 'loss'}`;
+            }
+            if (data.balance !== undefined) {
+                document.getElementById('autoBalance').textContent = `$${data.balance.toFixed(2)}`;
+                document.getElementById('balance').textContent = `$${data.balance.toFixed(2)}`;
+            }
+        }
+
+        function updateAutoTradeStatus(status) {
+            const badge = document.getElementById('autoTradeStatus');
+            badge.className = 'status-badge ' + status;
+            badge.textContent = status.toUpperCase();
+        }
         
         function connectDeriv() {
             ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
@@ -540,24 +860,18 @@
         function handleMessage(data) {
             if (data.authorize) {
                 document.getElementById('balance').textContent = `$${parseFloat(data.authorize.balance).toFixed(2)}`;
+                document.getElementById('autoBalance').textContent = `$${parseFloat(data.authorize.balance).toFixed(2)}`;
                 ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
             }
             
             if (data.balance) {
                 document.getElementById('balance').textContent = `$${parseFloat(data.balance.balance).toFixed(2)}`;
+                document.getElementById('autoBalance').textContent = `$${parseFloat(data.balance.balance).toFixed(2)}`;
             }
             
-            if (data.tick) {
-                handleTick(data.tick);
-            }
-            
-            if (data.buy) {
-                handleBuyResponse(data.buy);
-            }
-            
-            if (data.proposal_open_contract) {
-                handleContractUpdate(data.proposal_open_contract);
-            }
+            if (data.tick) handleTick(data.tick);
+            if (data.buy) handleBuyResponse(data.buy);
+            if (data.proposal_open_contract) handleContractUpdate(data.proposal_open_contract);
             
             if (data.error) {
                 console.error('Deriv error:', data.error);
@@ -569,17 +883,12 @@
         }
         
         function subscribeToTicks() {
-            ws.send(JSON.stringify({
-                ticks: currentSymbol,
-                subscribe: 1
-            }));
+            ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 }));
         }
         
         function changeSymbol() {
             currentSymbol = document.getElementById('symbolSelect').value;
             ticks = [];
-            
-            // Unsubscribe and resubscribe
             ws.send(JSON.stringify({ forget_all: 'ticks' }));
             setTimeout(subscribeToTicks, 500);
         }
@@ -587,11 +896,8 @@
         function handleTick(tick) {
             const price = parseFloat(tick.quote);
             ticks.push(price);
-            
-            // Keep last 200 ticks
             if (ticks.length > 200) ticks.shift();
             
-            // Update price display
             document.getElementById('livePrice').textContent = price.toFixed(4);
             
             if (ticks.length > 1) {
@@ -601,58 +907,41 @@
                 changeEl.className = `change ${change >= 0 ? 'up' : 'down'}`;
             }
             
-            // Calculate indicators and draw chart
             if (ticks.length >= 14) {
                 calculateIndicators();
                 analyzeSignal();
             }
-            
             drawChart();
         }
         
         function calculateIndicators() {
-            // RSI
             indicators.rsi = calculateRSI(ticks, 14);
-            
-            // EMA
             indicators.ema_fast = calculateEMA(ticks, 9);
             indicators.ema_slow = calculateEMA(ticks, 21);
-            
-            // MACD
             const ema12 = calculateEMA(ticks, 12);
             const ema26 = calculateEMA(ticks, 26);
             indicators.macd = ema12 - ema26;
-            
-            // Stochastic
             const stoch = calculateStochastic(ticks, 14);
             indicators.stoch_k = stoch.k;
             indicators.stoch_d = stoch.d;
-            
-            // ADX (simplified)
             indicators.adx = calculateADX(ticks, 14);
-            
-            // Bollinger Bands
             const bb = calculateBollingerBands(ticks, 20, 2);
             indicators.bb_upper = bb.upper;
             indicators.bb_middle = bb.middle;
             indicators.bb_lower = bb.lower;
-            
             updateIndicatorDisplay();
         }
         
         function calculateRSI(prices, period) {
             if (prices.length < period + 1) return 50;
-            
             let gains = 0, losses = 0;
             for (let i = prices.length - period; i < prices.length; i++) {
                 const diff = prices[i] - prices[i - 1];
                 if (diff > 0) gains += diff;
                 else losses -= diff;
             }
-            
             const avgGain = gains / period;
             const avgLoss = losses / period;
-            
             if (avgLoss === 0) return 100;
             const rs = avgGain / avgLoss;
             return 100 - (100 / (1 + rs));
@@ -660,39 +949,30 @@
         
         function calculateEMA(prices, period) {
             if (prices.length < period) return prices[prices.length - 1];
-            
             const multiplier = 2 / (period + 1);
             let ema = prices.slice(0, period).reduce((a, b) => a + b) / period;
-            
             for (let i = period; i < prices.length; i++) {
                 ema = (prices[i] - ema) * multiplier + ema;
             }
-            
             return ema;
         }
         
         function calculateStochastic(prices, period) {
             if (prices.length < period) return { k: 50, d: 50 };
-            
             const recent = prices.slice(-period);
             const high = Math.max(...recent);
             const low = Math.min(...recent);
             const close = prices[prices.length - 1];
-            
             const k = high !== low ? ((close - low) / (high - low)) * 100 : 50;
-            
             return { k, d: k };
         }
         
         function calculateADX(prices, period) {
-            // Simplified ADX
             if (prices.length < period) return 25;
-            
             let sumMove = 0;
             for (let i = prices.length - period; i < prices.length; i++) {
                 sumMove += Math.abs(prices[i] - prices[i - 1]);
             }
-            
             return Math.min(100, (sumMove / period) * 10000);
         }
         
@@ -701,48 +981,35 @@
                 const last = prices[prices.length - 1];
                 return { upper: last, middle: last, lower: last };
             }
-            
             const recent = prices.slice(-period);
             const middle = recent.reduce((a, b) => a + b) / period;
-            
             const variance = recent.reduce((sum, val) => sum + Math.pow(val - middle, 2), 0) / period;
             const std = Math.sqrt(variance);
-            
-            return {
-                upper: middle + stdDev * std,
-                middle: middle,
-                lower: middle - stdDev * std
-            };
+            return { upper: middle + stdDev * std, middle: middle, lower: middle - stdDev * std };
         }
         
         function updateIndicatorDisplay() {
-            // RSI
             const rsiEl = document.getElementById('rsiValue');
             rsiEl.textContent = indicators.rsi.toFixed(1);
             rsiEl.className = `value ${indicators.rsi > 70 ? 'bearish' : indicators.rsi < 30 ? 'bullish' : 'neutral'}`;
             
-            // MACD
             const macdEl = document.getElementById('macdValue');
             macdEl.textContent = indicators.macd.toFixed(4);
             macdEl.className = `value ${indicators.macd > 0 ? 'bullish' : indicators.macd < 0 ? 'bearish' : 'neutral'}`;
             
-            // EMA
             const emaEl = document.getElementById('emaValue');
             const emaTrend = indicators.ema_fast > indicators.ema_slow ? 'UP' : 'DOWN';
             emaEl.textContent = emaTrend;
             emaEl.className = `value ${emaTrend === 'UP' ? 'bullish' : 'bearish'}`;
             
-            // Stochastic
             const stochEl = document.getElementById('stochValue');
             stochEl.textContent = indicators.stoch_k.toFixed(1);
             stochEl.className = `value ${indicators.stoch_k > 80 ? 'bearish' : indicators.stoch_k < 20 ? 'bullish' : 'neutral'}`;
             
-            // ADX
             const adxEl = document.getElementById('adxValue');
             adxEl.textContent = indicators.adx.toFixed(1);
             adxEl.className = `value ${indicators.adx > 25 ? 'bullish' : 'neutral'}`;
             
-            // BB
             const bbEl = document.getElementById('bbValue');
             const lastPrice = ticks[ticks.length - 1];
             let bbPos = 'MID';
@@ -753,65 +1020,29 @@
         }
         
         function analyzeSignal() {
-            let callScore = 0;
-            let putScore = 0;
-            let reasons = [];
+            let callScore = 0, putScore = 0, reasons = [];
             
-            // RSI analysis
-            if (indicators.rsi < 30) {
-                callScore += 20;
-                reasons.push('RSI oversold');
-            } else if (indicators.rsi > 70) {
-                putScore += 20;
-                reasons.push('RSI overbought');
-            }
+            if (indicators.rsi < 30) { callScore += 20; reasons.push('RSI oversold'); }
+            else if (indicators.rsi > 70) { putScore += 20; reasons.push('RSI overbought'); }
             
-            // MACD analysis
-            if (indicators.macd > 0) {
-                callScore += 15;
-                reasons.push('MACD bullish');
-            } else if (indicators.macd < 0) {
-                putScore += 15;
-                reasons.push('MACD bearish');
-            }
+            if (indicators.macd > 0) { callScore += 15; reasons.push('MACD bullish'); }
+            else if (indicators.macd < 0) { putScore += 15; reasons.push('MACD bearish'); }
             
-            // EMA crossover
-            if (indicators.ema_fast > indicators.ema_slow) {
-                callScore += 20;
-                reasons.push('EMA bullish crossover');
-            } else {
-                putScore += 20;
-                reasons.push('EMA bearish crossover');
-            }
+            if (indicators.ema_fast > indicators.ema_slow) { callScore += 20; reasons.push('EMA bullish'); }
+            else { putScore += 20; reasons.push('EMA bearish'); }
             
-            // Stochastic
-            if (indicators.stoch_k < 20) {
-                callScore += 15;
-                reasons.push('Stoch oversold');
-            } else if (indicators.stoch_k > 80) {
-                putScore += 15;
-                reasons.push('Stoch overbought');
-            }
+            if (indicators.stoch_k < 20) { callScore += 15; reasons.push('Stoch oversold'); }
+            else if (indicators.stoch_k > 80) { putScore += 15; reasons.push('Stoch overbought'); }
             
-            // Bollinger Bands
             const lastPrice = ticks[ticks.length - 1];
-            if (lastPrice <= indicators.bb_lower) {
-                callScore += 15;
-                reasons.push('BB lower touch');
-            } else if (lastPrice >= indicators.bb_upper) {
-                putScore += 15;
-                reasons.push('BB upper touch');
-            }
+            if (lastPrice <= indicators.bb_lower) { callScore += 15; reasons.push('BB lower'); }
+            else if (lastPrice >= indicators.bb_upper) { putScore += 15; reasons.push('BB upper'); }
             
-            // ADX trend strength
             if (indicators.adx > 25) {
-                const boost = 10;
-                if (callScore > putScore) callScore += boost;
-                else putScore += boost;
-                reasons.push('Strong trend');
+                if (callScore > putScore) callScore += 10;
+                else putScore += 10;
             }
             
-            // Determine signal
             const signalEl = document.getElementById('signalDirection');
             const reasonEl = document.getElementById('signalReason');
             const confidenceEl = document.getElementById('confidenceValue');
@@ -827,17 +1058,11 @@
                 if (callScore > putScore) {
                     signalEl.textContent = 'CALL ↑';
                     signalEl.className = 'signal-direction call';
-                    reasonEl.textContent = reasons.slice(0, 2).join(', ');
                 } else {
                     signalEl.textContent = 'PUT ↓';
                     signalEl.className = 'signal-direction put';
-                    reasonEl.textContent = reasons.slice(0, 2).join(', ');
                 }
-                
-                // Auto trade if enabled
-                if (isAutoTrading && !isTrading && confidence >= 75) {
-                    placeTrade(callScore > putScore ? 'CALL' : 'PUT');
-                }
+                reasonEl.textContent = reasons.slice(0, 2).join(', ');
             } else {
                 signalEl.textContent = 'WAIT';
                 signalEl.className = 'signal-direction wait';
@@ -848,16 +1073,10 @@
         function drawChart() {
             const canvas = document.getElementById('chartCanvas');
             const ctx = canvas.getContext('2d');
-            
-            // Set canvas size
             canvas.width = canvas.parentElement.clientWidth;
             canvas.height = canvas.parentElement.clientHeight;
+            const width = canvas.width, height = canvas.height, padding = 40;
             
-            const width = canvas.width;
-            const height = canvas.height;
-            const padding = 40;
-            
-            // Clear canvas
             ctx.fillStyle = '#21262d';
             ctx.fillRect(0, 0, width, height);
             
@@ -867,10 +1086,8 @@
             const min = Math.min(...displayTicks);
             const max = Math.max(...displayTicks);
             const range = max - min || 1;
-            
             const xStep = (width - padding * 2) / (displayTicks.length - 1);
             
-            // Draw Bollinger Bands (if available)
             if (indicators.bb_upper && indicators.bb_lower) {
                 ctx.fillStyle = 'rgba(88, 166, 255, 0.1)';
                 ctx.beginPath();
@@ -882,35 +1099,27 @@
                 ctx.fill();
             }
             
-            // Draw price line
             ctx.strokeStyle = '#58a6ff';
             ctx.lineWidth = 2;
             ctx.beginPath();
-            
             displayTicks.forEach((price, i) => {
                 const x = padding + i * xStep;
                 const y = height - padding - ((price - min) / range) * (height - padding * 2);
-                
                 if (i === 0) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
             });
-            
             ctx.stroke();
             
-            // Draw current price dot
             const lastX = padding + (displayTicks.length - 1) * xStep;
             const lastY = height - padding - ((displayTicks[displayTicks.length - 1] - min) / range) * (height - padding * 2);
-            
             ctx.beginPath();
             ctx.arc(lastX, lastY, 5, 0, Math.PI * 2);
             ctx.fillStyle = '#58a6ff';
             ctx.fill();
             
-            // Draw price labels
             ctx.fillStyle = '#8b949e';
             ctx.font = '11px monospace';
             ctx.textAlign = 'right';
-            
             ctx.fillText(max.toFixed(4), padding - 5, padding + 5);
             ctx.fillText(min.toFixed(4), padding - 5, height - padding + 5);
         }
@@ -922,14 +1131,10 @@
             const stake = parseFloat(document.getElementById('stakeAmount').value);
             const duration = parseInt(document.getElementById('duration').value);
             
-            const contractType = direction === 'CALL' ? 'CALL' : 'PUT';
-            
             ws.send(JSON.stringify({
-                buy: 1,
-                subscribe: 1,
-                price: stake,
+                buy: 1, subscribe: 1, price: stake,
                 parameters: {
-                    contract_type: contractType,
+                    contract_type: direction,
                     symbol: currentSymbol,
                     duration: duration,
                     duration_unit: 't',
@@ -939,7 +1144,6 @@
                 }
             }));
             
-            // Disable buttons temporarily
             document.getElementById('callBtn').disabled = true;
             document.getElementById('putBtn').disabled = true;
         }
@@ -957,13 +1161,8 @@
                 const profit = parseFloat(contract.profit);
                 const isWin = profit > 0;
                 
-                if (isWin) {
-                    stats.wins++;
-                    stats.profit += profit;
-                } else {
-                    stats.losses++;
-                    stats.profit += profit;
-                }
+                if (isWin) { stats.wins++; stats.profit += profit; }
+                else { stats.losses++; stats.profit += profit; }
                 
                 stats.trades.unshift({
                     direction: contract.contract_type,
@@ -987,30 +1186,21 @@
             document.getElementById('totalProfit').textContent = `$${stats.profit.toFixed(2)}`;
             document.getElementById('totalProfit').className = `value ${stats.profit >= 0 ? 'profit' : 'loss'}`;
             
-            // Calculate streak
-            let streak = 0;
-            let lastResult = null;
+            let streak = 0, lastResult = null;
             for (const trade of stats.trades) {
-                if (lastResult === null) {
-                    lastResult = trade.isWin;
-                    streak = 1;
-                } else if (trade.isWin === lastResult) {
-                    streak++;
-                } else {
-                    break;
-                }
+                if (lastResult === null) { lastResult = trade.isWin; streak = 1; }
+                else if (trade.isWin === lastResult) { streak++; }
+                else { break; }
             }
             document.getElementById('streak').textContent = streak;
         }
         
         function updateTradeHistory() {
             const container = document.getElementById('tradeHistory');
-            
             if (stats.trades.length === 0) {
                 container.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">No trades yet</div>';
                 return;
             }
-            
             container.innerHTML = stats.trades.slice(0, 10).map(trade => `
                 <div class="trade-item">
                     <div>
@@ -1022,67 +1212,17 @@
             `).join('');
         }
         
-        function toggleAutoTrade() {
-            isAutoTrading = !isAutoTrading;
-            document.getElementById('autoTradeToggle').classList.toggle('active', isAutoTrading);
-        }
-        
-        // Handle window resize
         window.addEventListener('resize', drawChart);
-        
-        // Check if user should be redirected to a different strategy page
-        async function checkStrategyRedirect() {
-            console.log("--- checkStrategyRedirect called ---");
-            
-            // Wait for Telegram WebApp to be ready
-            if (!window.Telegram || !window.Telegram.WebApp) {
-                console.log("Waiting for Telegram.WebApp to be initialized...");
-                await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms and retry
-                return checkStrategyRedirect();
-            }
 
-            const tgUser = window.Telegram.WebApp.initDataUnsafe?.user;
-            if (!tgUser?.id) {
-                console.log("Redirect check failed: No tgUser.id found.");
-                return false;
-            }
-            console.log(`Redirect check: Found user ID ${tgUser.id}`);
-
-            try {
-                const response = await fetch(`/api/telegram/get-strategy?telegram_id=${tgUser.id}`);
-                const data = await response.json();
-                console.log("Redirect check: API response:", data);
-
-                if (data.strategy && data.route) {
-                    console.log(`Redirect check: Current path is '${window.location.pathname}', required route is '${data.route}'`);
-                    if (window.location.pathname !== data.route) {
-                        console.log("Redirect check: Mismatch found. REDIRECTING NOW to " + data.route);
-                        window.location.href = data.route;
-                        return true; // Indicates a redirect is happening.
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to fetch strategy for redirect:', error);
-            }
-
-            console.log("--- checkStrategyRedirect finished: No redirect needed. ---");
-            return false; // No redirect needed.
-        }
-        
-        // Initialize with Telegram token check (secured with initData)
         async function initTerminal() {
+            telegramId = getTelegramId();
+            
             if (window.Telegram?.WebApp) {
                 const tg = window.Telegram.WebApp;
                 tg.expand();
                 tg.ready();
                 
-                // Check for strategy redirect before proceeding
-                if (await checkStrategyRedirect()) {
-                    return;
-                }
-                
                 const initData = tg.initData;
-                
                 if (initData) {
                     try {
                         const resp = await fetch('/api/telegram/get-deriv-token', {
@@ -1104,6 +1244,8 @@
                 window.location.href = 'index.html';
             } else {
                 connectDeriv();
+                connectBotWebSocket();
+                syncTradingStatus();
             }
         }
         

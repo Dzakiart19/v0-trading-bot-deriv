@@ -20,6 +20,8 @@ from pydantic import BaseModel
 import uvicorn
 import threading
 
+from trading import TradingManager, TradingConfig, TradingState, StrategyType
+
 logger = logging.getLogger(__name__)
 
 # ==================== Models ====================
@@ -47,6 +49,15 @@ class AutoTradeConfig(BaseModel):
 class DerivTokenSync(BaseModel):
     telegram_id: int
     token: str
+
+class TradingStartRequest(BaseModel):
+    telegram_id: int
+    symbol: str
+    strategy: str
+    stake: float
+
+class TradingStopRequest(BaseModel):
+    telegram_id: int
 
 
 # ==================== WebSocket Manager ====================
@@ -164,16 +175,176 @@ class WebSessionManager:
 manager = ConnectionManager()
 session_manager = WebSessionManager()
 
+
+# ==================== Trade Event Broadcasting ====================
+
 async def broadcast_trade_event(event_type: str, data: dict, user_id: str = None):
-    """Broadcast trade event to connected websockets"""
+    """
+    Broadcast trade event to connected websockets with standardized format
+    
+    Event types and expected data format:
+    - trade_opened: {contract_id, stake, contract_type, symbol}
+    - trade_closed: {profit, balance, trades, win_rate, contract_id}
+    - status_update: {is_running, trades, profit, win_rate, balance}
+    """
     payload = {"type": event_type, "data": data}
     if user_id:
         await manager.send_personal(user_id, payload)
     else:
         await manager.broadcast(payload)
 
+
+async def broadcast_trade_opened(contract_id: str, stake: float, contract_type: str, 
+                                  symbol: str = "", user_id: str = None, telegram_id: int = None):
+    """
+    Broadcast trade opened event
+    
+    Args:
+        contract_id: The Deriv contract ID
+        stake: The stake amount
+        contract_type: Type of contract (CALL, PUT, DIGITOVER, etc.)
+        symbol: Trading symbol (e.g., R_100)
+        user_id: WebSocket user_id (optional)
+        telegram_id: Telegram user ID to find WebSocket connection (optional)
+    """
+    data = {
+        "contract_id": contract_id,
+        "stake": stake,
+        "contract_type": contract_type,
+        "symbol": symbol
+    }
+    
+    # Resolve user_id from telegram_id if needed
+    target_user_id = user_id
+    if not target_user_id and telegram_id:
+        target_user_id = str(telegram_id)
+    
+    await broadcast_trade_event("trade_opened", data, target_user_id)
+    logger.info(f"Broadcasted trade_opened: {contract_type} on {symbol}, stake={stake}")
+
+
+async def broadcast_trade_closed(profit: float, balance: float, trades: int, win_rate: float,
+                                  contract_id: str = "", user_id: str = None, telegram_id: int = None):
+    """
+    Broadcast trade closed event
+    
+    Args:
+        profit: Profit/loss from the trade
+        balance: Current balance after trade
+        trades: Total number of trades
+        win_rate: Current win rate percentage
+        contract_id: The Deriv contract ID (optional)
+        user_id: WebSocket user_id (optional)
+        telegram_id: Telegram user ID to find WebSocket connection (optional)
+    """
+    data = {
+        "profit": profit,
+        "balance": balance,
+        "trades": trades,
+        "win_rate": win_rate,
+        "contract_id": contract_id
+    }
+    
+    # Resolve user_id from telegram_id if needed
+    target_user_id = user_id
+    if not target_user_id and telegram_id:
+        target_user_id = str(telegram_id)
+    
+    await broadcast_trade_event("trade_closed", data, target_user_id)
+    logger.info(f"Broadcasted trade_closed: profit={profit}, balance={balance}, win_rate={win_rate}%")
+
+
+async def broadcast_status_update(is_running: bool, trades: int, profit: float, win_rate: float,
+                                   balance: float = 0.0, symbol: str = "", strategy: str = "",
+                                   user_id: str = None, telegram_id: int = None):
+    """
+    Broadcast trading status update
+    
+    Args:
+        is_running: Whether trading is currently active
+        trades: Total number of trades
+        profit: Total profit/loss
+        win_rate: Current win rate percentage
+        balance: Current account balance (optional)
+        symbol: Current trading symbol (optional)
+        strategy: Current strategy name (optional)
+        user_id: WebSocket user_id (optional)
+        telegram_id: Telegram user ID to find WebSocket connection (optional)
+    """
+    data = {
+        "is_running": is_running,
+        "trades": trades,
+        "profit": profit,
+        "win_rate": win_rate,
+        "balance": balance,
+        "symbol": symbol,
+        "strategy": strategy
+    }
+    
+    # Resolve user_id from telegram_id if needed
+    target_user_id = user_id
+    if not target_user_id and telegram_id:
+        target_user_id = str(telegram_id)
+    
+    await broadcast_trade_event("status_update", data, target_user_id)
+    logger.info(f"Broadcasted status_update: running={is_running}, trades={trades}, profit={profit}")
+
+
+async def broadcast_to_telegram_user(telegram_id: int, event_type: str, data: dict):
+    """
+    Broadcast event to a specific user based on their Telegram ID
+    
+    This function finds the WebSocket connection associated with the telegram_id
+    and sends the event to that specific user.
+    
+    Args:
+        telegram_id: The Telegram user ID
+        event_type: Type of event (trade_opened, trade_closed, status_update, etc.)
+        data: Event data dictionary
+    """
+    user_id = str(telegram_id)
+    payload = {"type": event_type, "data": data}
+    
+    if user_id in manager.active_connections:
+        await manager.send_personal(user_id, payload)
+        logger.debug(f"Sent {event_type} to telegram_id: {telegram_id}")
+    else:
+        logger.debug(f"No active WebSocket for telegram_id: {telegram_id}")
+
+
+def clear_all_trading_state():
+    """
+    Clear all trading state from memory - called on startup/shutdown
+    Clears trading_managers, deriv_connections, and session data
+    """
+    global trading_managers, deriv_connections
+    
+    # Stop all active trading managers
+    for telegram_id, tm in list(trading_managers.items()):
+        try:
+            if hasattr(tm, 'stop'):
+                tm.stop()
+        except Exception as e:
+            logger.error(f"Error stopping trading manager for {telegram_id}: {e}")
+    
+    # Clear all dictionaries
+    trading_managers.clear()
+    deriv_connections.clear()
+    strategy_instances.clear()
+    
+    # Clear session manager data
+    session_manager.sessions.clear()
+    session_manager.telegram_to_session.clear()
+    session_manager.user_strategy.clear()
+    session_manager.deriv_tokens.clear()
+    session_manager.deriv_accounts.clear()
+    
+    logger.info("Cleared all trading state from web_server memory")
+
+
 strategy_instances: Dict[str, Any] = {}
 deriv_connections: Dict[int, Any] = {}
+trading_managers: Dict[int, Any] = {}
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 DERIV_APP_ID = os.environ.get("DERIV_APP_ID", "1089")
@@ -624,6 +795,192 @@ async def get_strategy_stats(strategy_name: str, token: str = Query(...)):
     
     return {"wins": 0, "losses": 0, "profit": 0, "win_rate": 0}
 
+
+# ==================== Trading Control API ====================
+
+@app.post("/api/trading/start")
+async def trading_start(request: TradingStartRequest):
+    """
+    Start trading for a user via API
+    Reuses existing trading_manager from telegram_bot if available
+    """
+    telegram_id = request.telegram_id
+    
+    # Check if already trading
+    existing_manager = trading_managers.get(telegram_id)
+    if existing_manager and existing_manager.state == TradingState.RUNNING:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "message": "Trading already running for this user",
+                "status": existing_manager.get_status()
+            }
+        )
+    
+    # Get Deriv WebSocket connection for user
+    ws = deriv_connections.get(telegram_id)
+    if not ws:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "message": "User not connected to Deriv. Please login via Telegram bot first."
+            }
+        )
+    
+    if not ws.is_connected():
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "message": "Deriv WebSocket not connected. Please reconnect via Telegram bot."
+            }
+        )
+    
+    # Map strategy string to StrategyType enum
+    strategy_map = {
+        "TERMINAL": StrategyType.TERMINAL,
+        "TICK_PICKER": StrategyType.TICK_PICKER,
+        "DIGITPAD": StrategyType.DIGITPAD,
+        "AMT": StrategyType.AMT,
+        "SNIPER": StrategyType.SNIPER,
+        "LDP": StrategyType.LDP,
+        "MULTI_INDICATOR": StrategyType.MULTI_INDICATOR,
+    }
+    
+    strategy_type = strategy_map.get(request.strategy.upper())
+    if not strategy_type:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "message": f"Invalid strategy: {request.strategy}. Valid strategies: {list(strategy_map.keys())}"
+            }
+        )
+    
+    # Create trading config
+    config = TradingConfig(
+        symbol=request.symbol,
+        strategy=strategy_type,
+        base_stake=request.stake,
+        auto_trade=True
+    )
+    
+    # Create or reuse trading manager
+    if existing_manager:
+        existing_manager.update_config(config)
+        trading_manager = existing_manager
+    else:
+        trading_manager = TradingManager(ws, config)
+        register_trading_manager(telegram_id, trading_manager)
+    
+    # Update strategy in session manager
+    session_manager.set_strategy(telegram_id, request.strategy.upper())
+    
+    # Start trading
+    success = trading_manager.start()
+    
+    if success:
+        logger.info(f"Trading started via API for telegram_id: {telegram_id}, symbol: {request.symbol}, strategy: {request.strategy}")
+        return {
+            "success": True,
+            "message": f"Trading started with {request.strategy} on {request.symbol}",
+            "status": trading_manager.get_status()
+        }
+    else:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "message": "Failed to start trading. Check if WebSocket is connected and configured.",
+                "status": trading_manager.get_status()
+            }
+        )
+
+
+@app.post("/api/trading/stop")
+async def trading_stop(request: TradingStopRequest):
+    """
+    Stop trading for a user via API
+    """
+    telegram_id = request.telegram_id
+    
+    trading_manager = trading_managers.get(telegram_id)
+    if not trading_manager:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "message": "No active trading session found for this user"
+            }
+        )
+    
+    if trading_manager.state == TradingState.IDLE:
+        return {
+            "success": True,
+            "message": "Trading already stopped"
+        }
+    
+    # Stop trading
+    trading_manager.stop()
+    
+    logger.info(f"Trading stopped via API for telegram_id: {telegram_id}")
+    return {
+        "success": True,
+        "message": "Trading stopped successfully"
+    }
+
+
+@app.get("/api/trading/status")
+async def trading_status(telegram_id: int = Query(...)):
+    """
+    Get real-time trading status for a user
+    """
+    trading_manager = trading_managers.get(telegram_id)
+    
+    # Get base account info
+    ws = deriv_connections.get(telegram_id)
+    deriv_account = session_manager.get_deriv_account(telegram_id)
+    strategy = session_manager.get_strategy(telegram_id)
+    
+    # Calculate balance from deriv account or ws connection
+    balance = 0.0
+    if deriv_account:
+        balance = deriv_account.get("balance", 0)
+    elif ws and hasattr(ws, 'get_balance') and ws.is_connected():
+        balance = ws.get_balance()
+    
+    if not trading_manager:
+        # No trading manager - return idle status
+        return {
+            "is_running": False,
+            "trades": 0,
+            "wins": 0,
+            "losses": 0,
+            "profit": 0.0,
+            "win_rate": 0.0,
+            "balance": balance,
+            "symbol": "",
+            "strategy": strategy or ""
+        }
+    
+    # Get status from trading manager
+    status = trading_manager.get_status()
+    
+    return {
+        "is_running": status.get("state") == TradingState.RUNNING.value,
+        "trades": status.get("trades", 0),
+        "wins": status.get("wins", 0),
+        "losses": status.get("losses", 0),
+        "profit": status.get("profit", 0.0),
+        "win_rate": status.get("win_rate", 0.0),
+        "balance": status.get("balance", balance),
+        "symbol": status.get("symbol", ""),
+        "strategy": status.get("strategy", strategy or "")
+    }
+
+
 @app.get("/api/deriv/account")
 async def get_deriv_account_info(telegram_id: int = Query(...)):
     """Get Deriv account info for a user"""
@@ -747,6 +1104,20 @@ def register_strategy_instance(name: str, instance):
     """Register a strategy instance"""
     strategy_instances[name] = instance
     logger.info(f"Registered strategy: {name}")
+
+def register_trading_manager(telegram_id: int, trading_manager):
+    """Register a TradingManager instance for a user - callable from telegram_bot"""
+    trading_managers[telegram_id] = trading_manager
+    logger.info(f"Registered trading manager for telegram_id: {telegram_id}")
+
+def unregister_trading_manager(telegram_id: int):
+    """Unregister a TradingManager instance for a user - callable from telegram_bot"""
+    trading_managers.pop(telegram_id, None)
+    logger.info(f"Unregistered trading manager for telegram_id: {telegram_id}")
+
+def get_trading_manager(telegram_id: int):
+    """Get TradingManager for a user"""
+    return trading_managers.get(telegram_id)
 
 
 # ==================== Run Server ====================

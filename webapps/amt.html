@@ -55,6 +55,85 @@
             font-weight: 600;
             color: var(--accent-green);
         }
+        .auto-trade-section {
+            background: linear-gradient(135deg, var(--bg-secondary), #1a2332);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .auto-trade-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .auto-trade-header h3 {
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-badge.running { background: rgba(57, 211, 83, 0.15); color: var(--accent-green); border: 1px solid var(--accent-green); }
+        .status-badge.stopped { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); border: 1px solid var(--accent-red); }
+        .status-badge.connecting { background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow); border: 1px solid var(--accent-yellow); animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .auto-trade-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px;
+            background: var(--bg-card);
+            border-radius: 8px;
+        }
+        .toggle-switch {
+            width: 50px;
+            height: 26px;
+            background: var(--border-color);
+            border-radius: 13px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .toggle-switch.active { background: var(--accent-green); }
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.3s;
+        }
+        .toggle-switch.active::after { transform: translateX(24px); }
+        .auto-trade-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .auto-stat-item {
+            background: var(--bg-card);
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .auto-stat-item .label { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; }
+        .auto-stat-item .value { font-size: 1rem; font-weight: 600; margin-top: 2px; }
+        .auto-stat-item .value.profit { color: var(--accent-green); }
+        .auto-stat-item .value.loss { color: var(--accent-red); }
+        .ws-status { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-secondary); margin-top: 8px; }
+        .ws-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-red); }
+        .ws-dot.connected { background: var(--accent-green); }
         .growth-display {
             background: linear-gradient(135deg, var(--bg-secondary), #1a2332);
             border: 1px solid var(--border-color);
@@ -63,21 +142,9 @@
             margin-bottom: 16px;
             text-align: center;
         }
-        .growth-display .title {
-            color: var(--text-secondary);
-            font-size: 0.9rem;
-            margin-bottom: 8px;
-        }
-        .growth-display .rate {
-            font-size: 3rem;
-            font-weight: 700;
-            color: var(--accent-yellow);
-        }
-        .growth-display .multiplier {
-            font-size: 1.2rem;
-            color: var(--accent-green);
-            margin-top: 8px;
-        }
+        .growth-display .title { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 8px; }
+        .growth-display .rate { font-size: 3rem; font-weight: 700; color: var(--accent-yellow); }
+        .growth-display .multiplier { font-size: 1.2rem; color: var(--accent-green); margin-top: 8px; }
         .growth-selector {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -94,21 +161,10 @@
             text-align: center;
             transition: all 0.2s;
         }
-        .growth-option:hover {
-            border-color: var(--accent-yellow);
-        }
-        .growth-option.active {
-            border-color: var(--accent-yellow);
-            background: rgba(210, 153, 34, 0.15);
-        }
-        .growth-option .rate {
-            font-size: 1.1rem;
-            font-weight: 600;
-        }
-        .growth-option .payout {
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-        }
+        .growth-option:hover { border-color: var(--accent-yellow); }
+        .growth-option.active { border-color: var(--accent-yellow); background: rgba(210, 153, 34, 0.15); }
+        .growth-option .rate { font-size: 1.1rem; font-weight: 600; }
+        .growth-option .payout { font-size: 0.75rem; color: var(--text-secondary); }
         .chart-section {
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
@@ -153,27 +209,17 @@
             margin-bottom: 16px;
             display: none;
         }
-        .active-contract.show {
-            display: block;
-        }
+        .active-contract.show { display: block; }
         .contract-info {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 12px;
             text-align: center;
         }
-        .contract-info .item .label {
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-        }
-        .contract-info .item .value {
-            font-size: 1.2rem;
-            font-weight: 600;
-        }
+        .contract-info .item .label { font-size: 0.75rem; color: var(--text-secondary); }
+        .contract-info .item .value { font-size: 1.2rem; font-weight: 600; }
         .contract-info .item .value.profit { color: var(--accent-green); }
-        .contract-progress {
-            margin-top: 16px;
-        }
+        .contract-progress { margin-top: 16px; }
         .progress-bar {
             height: 8px;
             background: var(--bg-card);
@@ -236,7 +282,7 @@
             align-items: center;
             margin-bottom: 8px;
         }
-        .toggle-switch {
+        .tp-toggle {
             width: 44px;
             height: 24px;
             background: var(--border-color);
@@ -245,10 +291,8 @@
             cursor: pointer;
             transition: background 0.3s;
         }
-        .toggle-switch.active {
-            background: var(--accent-green);
-        }
-        .toggle-switch::after {
+        .tp-toggle.active { background: var(--accent-green); }
+        .tp-toggle::after {
             content: '';
             position: absolute;
             width: 20px;
@@ -259,9 +303,7 @@
             left: 2px;
             transition: transform 0.3s;
         }
-        .toggle-switch.active::after {
-            transform: translateX(20px);
-        }
+        .tp-toggle.active::after { transform: translateX(20px); }
         .buy-btn {
             width: 100%;
             padding: 16px;
@@ -274,15 +316,8 @@
             cursor: pointer;
             transition: all 0.2s;
         }
-        .buy-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 20px rgba(210, 153, 34, 0.3);
-        }
-        .buy-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
+        .buy-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(210, 153, 34, 0.3); }
+        .buy-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         .stats-bar {
             display: flex;
             justify-content: space-around;
@@ -291,16 +326,9 @@
             border-radius: 8px;
             margin-top: 16px;
         }
-        .stat {
-            text-align: center;
-        }
-        .stat .label {
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-        }
-        .stat .value {
-            font-weight: 600;
-        }
+        .stat { text-align: center; }
+        .stat .label { font-size: 0.75rem; color: var(--text-secondary); }
+        .stat .value { font-weight: 600; }
         .stat .value.profit { color: var(--accent-green); }
         .stat .value.loss { color: var(--accent-red); }
     </style>
@@ -316,6 +344,38 @@
             <h1>AMT Accumulator</h1>
         </div>
         <div class="balance-badge" id="balance">$0.00</div>
+    </div>
+
+    <div class="auto-trade-section">
+        <div class="auto-trade-header">
+            <h3>Auto Trade <span class="status-badge stopped" id="autoTradeStatus">STOPPED</span></h3>
+        </div>
+        <div class="auto-trade-toggle">
+            <span>Enable Auto Trading</span>
+            <div class="toggle-switch" id="autoTradeToggle" onclick="toggleAutoTrade()"></div>
+        </div>
+        <div class="auto-trade-stats">
+            <div class="auto-stat-item">
+                <div class="label">Total Trades</div>
+                <div class="value" id="autoTotalTrades">0</div>
+            </div>
+            <div class="auto-stat-item">
+                <div class="label">Win Rate</div>
+                <div class="value" id="autoWinRate">0%</div>
+            </div>
+            <div class="auto-stat-item">
+                <div class="label">Profit/Loss</div>
+                <div class="value profit" id="autoProfitLoss">$0.00</div>
+            </div>
+            <div class="auto-stat-item">
+                <div class="label">Balance</div>
+                <div class="value" id="autoBalance">$0.00</div>
+            </div>
+        </div>
+        <div class="ws-status">
+            <div class="ws-dot" id="wsDot"></div>
+            <span id="wsStatusText">Disconnected</span>
+        </div>
     </div>
 
     <div class="growth-display">
@@ -406,7 +466,7 @@
         <div class="take-profit-section">
             <div class="header">
                 <span style="font-size: 0.9rem;">Take Profit</span>
-                <div class="toggle-switch" id="tpToggle" onclick="toggleTakeProfit()"></div>
+                <div class="tp-toggle" id="tpToggle" onclick="toggleTakeProfit()"></div>
             </div>
             <div class="form-group" id="tpInput" style="display: none; margin-top: 8px;">
                 <input type="number" id="takeProfit" value="10" min="1" placeholder="Profit target ($)">
@@ -434,47 +494,94 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
         const DERIV_APP_ID = 1089;
+        const STRATEGY_NAME = 'amt';
         let ws = null;
+        let botWs = null;
         let authToken = null;
+        let telegramId = null;
         let currentSymbol = '1HZ100V';
         let growthRate = 5;
         let ticks = [];
         let activeContractId = null;
         let takeProfitEnabled = false;
+        let isAutoTrading = false;
         let stats = { wins: 0, losses: 0, profit: 0 };
+        let statusSyncInterval = null;
+
+        function getTelegramId() { return window.Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }
+
+        function connectBotWebSocket() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/stream`;
+            updateWsStatus('connecting');
+            botWs = new WebSocket(wsUrl);
+            botWs.onopen = () => { updateWsStatus('connected'); if (telegramId) botWs.send(JSON.stringify({ type: 'subscribe', telegram_id: telegramId })); };
+            botWs.onmessage = (event) => { try { handleTradingEvent(JSON.parse(event.data)); } catch (e) {} };
+            botWs.onclose = () => { updateWsStatus('disconnected'); setTimeout(connectBotWebSocket, 5000); };
+            botWs.onerror = () => updateWsStatus('disconnected');
+        }
+
+        function updateWsStatus(status) {
+            const dot = document.getElementById('wsDot');
+            const text = document.getElementById('wsStatusText');
+            if (status === 'connected') { dot.classList.add('connected'); text.textContent = 'Connected'; }
+            else if (status === 'connecting') { dot.classList.remove('connected'); text.textContent = 'Connecting...'; }
+            else { dot.classList.remove('connected'); text.textContent = 'Disconnected'; }
+        }
+
+        function handleTradingEvent(data) {
+            if (data.type === 'trade_closed') syncTradingStatus();
+            else if (data.type === 'status_update') updateTradingUI(data);
+        }
+
+        async function startAutoTrade() {
+            if (!telegramId) { alert('Please login via Telegram first'); return; }
+            const stake = parseFloat(document.getElementById('stake').value);
+            try {
+                updateAutoTradeStatus('connecting');
+                const response = await fetch('/api/trading/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ telegram_id: telegramId, symbol: currentSymbol, strategy: STRATEGY_NAME, stake: stake }) });
+                const data = await response.json();
+                if (data.success) { isAutoTrading = true; document.getElementById('autoTradeToggle').classList.add('active'); updateAutoTradeStatus('running'); startStatusSync(); }
+                else { alert(data.error || 'Failed to start'); document.getElementById('autoTradeToggle').classList.remove('active'); updateAutoTradeStatus('stopped'); }
+            } catch (e) { document.getElementById('autoTradeToggle').classList.remove('active'); updateAutoTradeStatus('stopped'); }
+        }
+
+        async function stopAutoTrade() {
+            if (!telegramId) return;
+            try { await fetch('/api/trading/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ telegram_id: telegramId }) }); isAutoTrading = false; document.getElementById('autoTradeToggle').classList.remove('active'); updateAutoTradeStatus('stopped'); stopStatusSync(); } catch (e) {}
+        }
+
+        function toggleAutoTrade() { if (!telegramId) { alert('Please login via Telegram first'); return; } if (isAutoTrading) stopAutoTrade(); else startAutoTrade(); }
+
+        async function syncTradingStatus() {
+            if (!telegramId) return;
+            try { const response = await fetch(`/api/trading/status?telegram_id=${telegramId}`); const data = await response.json(); if (data.success) updateTradingUI(data); } catch (e) {}
+        }
+
+        function startStatusSync() { if (statusSyncInterval) clearInterval(statusSyncInterval); statusSyncInterval = setInterval(syncTradingStatus, 5000); }
+        function stopStatusSync() { if (statusSyncInterval) { clearInterval(statusSyncInterval); statusSyncInterval = null; } }
+
+        function updateTradingUI(data) {
+            if (data.is_running !== undefined) { isAutoTrading = data.is_running; document.getElementById('autoTradeToggle').classList.toggle('active', isAutoTrading); updateAutoTradeStatus(isAutoTrading ? 'running' : 'stopped'); }
+            if (data.total_trades !== undefined) document.getElementById('autoTotalTrades').textContent = data.total_trades;
+            if (data.win_rate !== undefined) document.getElementById('autoWinRate').textContent = `${data.win_rate.toFixed(1)}%`;
+            if (data.profit !== undefined) { const el = document.getElementById('autoProfitLoss'); el.textContent = `$${data.profit.toFixed(2)}`; el.className = `value ${data.profit >= 0 ? 'profit' : 'loss'}`; }
+            if (data.balance !== undefined) { document.getElementById('autoBalance').textContent = `$${data.balance.toFixed(2)}`; document.getElementById('balance').textContent = `$${data.balance.toFixed(2)}`; }
+        }
+
+        function updateAutoTradeStatus(status) { const badge = document.getElementById('autoTradeStatus'); badge.className = 'status-badge ' + status; badge.textContent = status.toUpperCase(); }
         
         function connectDeriv() {
             ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
-            
-            ws.onopen = () => {
-                if (authToken) ws.send(JSON.stringify({ authorize: authToken }));
-                ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 }));
-            };
-            
+            ws.onopen = () => { if (authToken) ws.send(JSON.stringify({ authorize: authToken })); ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 })); };
             ws.onmessage = (msg) => {
                 const data = JSON.parse(msg.data);
-                
-                if (data.authorize) {
-                    document.getElementById('balance').textContent = `$${parseFloat(data.authorize.balance).toFixed(2)}`;
-                    ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
-                }
-                
-                if (data.balance) {
-                    document.getElementById('balance').textContent = `$${parseFloat(data.balance.balance).toFixed(2)}`;
-                }
-                
+                if (data.authorize) { document.getElementById('balance').textContent = `$${parseFloat(data.authorize.balance).toFixed(2)}`; document.getElementById('autoBalance').textContent = `$${parseFloat(data.authorize.balance).toFixed(2)}`; ws.send(JSON.stringify({ balance: 1, subscribe: 1 })); }
+                if (data.balance) { document.getElementById('balance').textContent = `$${parseFloat(data.balance.balance).toFixed(2)}`; document.getElementById('autoBalance').textContent = `$${parseFloat(data.balance.balance).toFixed(2)}`; }
                 if (data.tick) handleTick(data.tick);
-                
-                if (data.proposal_open_contract) {
-                    handleContractUpdate(data.proposal_open_contract);
-                }
-                
-                if (data.error && data.error.code === 'InvalidToken') {
-                    localStorage.removeItem('deriv_token');
-                    window.location.href = 'index.html';
-                }
+                if (data.proposal_open_contract) handleContractUpdate(data.proposal_open_contract);
+                if (data.error && data.error.code === 'InvalidToken') { localStorage.removeItem('deriv_token'); window.location.href = 'index.html'; }
             };
-            
             ws.onclose = () => setTimeout(connectDeriv, 3000);
         }
         
@@ -489,43 +596,21 @@
             const canvas = document.getElementById('chartCanvas');
             const ctx = canvas.getContext('2d');
             const container = document.getElementById('chartContainer');
-            
             canvas.width = container.clientWidth;
             canvas.height = container.clientHeight;
-            
-            const width = canvas.width;
-            const height = canvas.height;
-            const padding = 10;
-            
+            const width = canvas.width, height = canvas.height, padding = 10;
             ctx.fillStyle = '#21262d';
             ctx.fillRect(0, 0, width, height);
-            
             if (ticks.length < 2) return;
-            
-            const min = Math.min(...ticks);
-            const max = Math.max(...ticks);
-            const range = max - min || 1;
-            
+            const min = Math.min(...ticks), max = Math.max(...ticks), range = max - min || 1;
             const xStep = (width - padding * 2) / (ticks.length - 1);
-            
-            // Draw line
             ctx.strokeStyle = '#d29922';
             ctx.lineWidth = 2;
             ctx.beginPath();
-            
-            ticks.forEach((price, i) => {
-                const x = padding + i * xStep;
-                const y = height - padding - ((price - min) / range) * (height - padding * 2);
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            });
-            
+            ticks.forEach((price, i) => { const x = padding + i * xStep; const y = height - padding - ((price - min) / range) * (height - padding * 2); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
             ctx.stroke();
-            
-            // Draw last point
             const lastX = padding + (ticks.length - 1) * xStep;
             const lastY = height - padding - ((ticks[ticks.length - 1] - min) / range) * (height - padding * 2);
-            
             ctx.beginPath();
             ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
             ctx.fillStyle = '#d29922';
@@ -536,10 +621,7 @@
             growthRate = rate;
             document.getElementById('growthRate').textContent = `${rate}%`;
             document.getElementById('multiplier').textContent = `Potential: ${(1 + rate/100).toFixed(2)}x per tick`;
-            
-            document.querySelectorAll('.growth-option').forEach(opt => {
-                opt.classList.toggle('active', parseInt(opt.dataset.rate) === rate);
-            });
+            document.querySelectorAll('.growth-option').forEach(opt => opt.classList.toggle('active', parseInt(opt.dataset.rate) === rate));
         }
         
         function changeSymbol() {
@@ -557,26 +639,9 @@
         
         function buyAccumulator() {
             if (!authToken || activeContractId) return;
-            
             const stake = parseFloat(document.getElementById('stake').value);
-            
             document.getElementById('buyBtn').disabled = true;
-            
-            // Note: Accumulator contracts may need specific API parameters
-            // This is a simplified version
-            ws.send(JSON.stringify({
-                buy: 1,
-                subscribe: 1,
-                price: stake,
-                parameters: {
-                    contract_type: 'ACCU',
-                    symbol: currentSymbol,
-                    growth_rate: growthRate / 100,
-                    basis: 'stake',
-                    amount: stake,
-                    currency: 'USD'
-                }
-            }));
+            ws.send(JSON.stringify({ buy: 1, subscribe: 1, price: stake, parameters: { contract_type: 'ACCU', symbol: currentSymbol, growth_rate: growthRate / 100, basis: 'stake', amount: stake, currency: 'USD' } }));
         }
         
         function handleContractUpdate(contract) {
@@ -584,109 +649,41 @@
                 activeContractId = contract.contract_id;
                 document.getElementById('activeContract').classList.add('show');
                 document.getElementById('buyBtn').disabled = true;
-                
-                // Update display
                 document.getElementById('ticksAccumulated').textContent = contract.tick_count || 0;
                 document.getElementById('currentPayout').textContent = `$${parseFloat(contract.bid_price || 0).toFixed(2)}`;
-                
                 const growth = ((contract.bid_price - contract.buy_price) / contract.buy_price * 100) || 0;
                 document.getElementById('currentGrowth').textContent = `+${growth.toFixed(1)}%`;
             }
-            
             if (contract.is_sold) {
                 activeContractId = null;
                 document.getElementById('activeContract').classList.remove('show');
                 document.getElementById('buyBtn').disabled = false;
-                
                 const profit = parseFloat(contract.profit);
-                if (profit > 0) {
-                    stats.wins++;
-                    stats.profit += profit;
-                } else {
-                    stats.losses++;
-                    stats.profit += profit;
-                }
-                
+                if (profit > 0) { stats.wins++; stats.profit += profit; }
+                else { stats.losses++; stats.profit += profit; }
                 updateStats();
             }
         }
         
         function sellContract() {
             if (!activeContractId) return;
-            
-            ws.send(JSON.stringify({
-                sell: activeContractId,
-                price: 0
-            }));
+            ws.send(JSON.stringify({ sell: activeContractId, price: 0 }));
         }
         
         function updateStats() {
             const total = stats.wins + stats.losses;
             const winRate = total > 0 ? (stats.wins / total * 100).toFixed(1) : 0;
-            
             document.getElementById('totalTrades').textContent = total;
             document.getElementById('winRate').textContent = `${winRate}%`;
             document.getElementById('profit').textContent = `$${stats.profit.toFixed(2)}`;
             document.getElementById('profit').className = `value ${stats.profit >= 0 ? 'profit' : 'loss'}`;
         }
-        
-        // Check if user should be redirected to a different strategy page
-        async function checkStrategyRedirect() {
-            const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-            if (!tgUser?.id) return false;
 
-            try {
-                const response = await fetch(`/api/telegram/get-strategy?telegram_id=${tgUser.id}`);
-                const data = await response.json();
-
-                // If a strategy is set and the current page doesn't match the strategy's route, redirect.
-                if (data.strategy && data.route && window.location.pathname !== data.route) {
-                    window.location.href = data.route;
-                    return true; // Indicates a redirect is happening.
-                }
-            } catch (error) {
-                console.error('Failed to fetch strategy for redirect:', error);
-            }
-
-            return false; // No redirect needed.
-        }
-        
-        // Initialize with Telegram token check (secured with initData)
         async function initPage() {
-            if (window.Telegram?.WebApp) {
-                const tg = window.Telegram.WebApp;
-                tg.expand();
-                tg.ready();
-                
-                // Check for strategy redirect before proceeding
-                if (await checkStrategyRedirect()) {
-                    return;
-                }
-                
-                const initData = tg.initData;
-                
-                if (initData) {
-                    try {
-                        const resp = await fetch('/api/telegram/get-deriv-token', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ init_data: initData })
-                        });
-                        const data = await resp.json();
-                        if (data.success && data.token) {
-                            authToken = data.token;
-                        }
-                    } catch (e) {
-                        console.error('Failed to get token from bot:', e);
-                    }
-                }
-            }
-            
-            if (!authToken) {
-                window.location.href = 'index.html';
-            } else {
-                connectDeriv();
-            }
+            telegramId = getTelegramId();
+            if (window.Telegram?.WebApp) { const tg = window.Telegram.WebApp; tg.expand(); tg.ready(); const initData = tg.initData; if (initData) { try { const resp = await fetch('/api/telegram/get-deriv-token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ init_data: initData }) }); const data = await resp.json(); if (data.success && data.token) authToken = data.token; } catch (e) {} } }
+            if (!authToken) { window.location.href = 'index.html'; }
+            else { connectDeriv(); connectBotWebSocket(); syncTradingStatus(); }
         }
         
         initPage();

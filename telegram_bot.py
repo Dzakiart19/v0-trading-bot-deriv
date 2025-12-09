@@ -468,8 +468,18 @@ Klik tombol di bawah untuk membuka WebApp:
         if user.id in self._trading_managers:
             tm = self._trading_managers[user.id]
             if tm.state == TradingState.RUNNING:
+                keyboard = [
+                    [InlineKeyboardButton("⏹️ Stop Trading", callback_data="confirm_stop_trading")],
+                    [InlineKeyboardButton("🔄 Force Restart", callback_data="force_restart_trading")],
+                    [InlineKeyboardButton("🔙 Menu", callback_data="menu_main")]
+                ]
                 await update.message.reply_text(
-                    "⚠️ Trading sudah berjalan. Gunakan /stop untuk menghentikan."
+                    "⚠️ <b>Trading sedang berjalan</b>\n\n"
+                    "Pilih aksi:\n"
+                    "• <b>Stop Trading</b> - Hentikan trading saat ini\n"
+                    "• <b>Force Restart</b> - Stop paksa dan mulai ulang",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 return
         
@@ -528,6 +538,75 @@ Klik tombol di bawah untuk memulai:"""
         tm.stop()
         
         await update.message.reply_text("⏹️ Trading dihentikan.")
+    
+    def force_stop_trading(self, user_id: int) -> Dict[str, Any]:
+        """
+        Force stop trading for a user - can be called from web_server
+        This method completely clears trading state to avoid stuck issues
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            Dict with success status and message
+        """
+        try:
+            if user_id not in self._trading_managers:
+                # Also check web_server in case it was started via API
+                try:
+                    from web_server import unregister_trading_manager
+                    unregister_trading_manager(user_id)
+                except:
+                    pass
+                return {
+                    "success": True,
+                    "message": "No trading manager found",
+                    "was_running": False
+                }
+            
+            tm = self._trading_managers[user_id]
+            was_running = tm.state == TradingState.RUNNING
+            
+            # Force stop regardless of state
+            try:
+                tm.stop()
+            except Exception as e:
+                logger.error(f"Error during force stop for user {user_id}: {e}")
+            
+            # Force state to IDLE
+            tm.state = TradingState.IDLE
+            
+            # Remove from dict to ensure fresh start next time
+            del self._trading_managers[user_id]
+            
+            # Unregister from web_server
+            try:
+                from web_server import unregister_trading_manager
+                unregister_trading_manager(user_id)
+            except Exception as e:
+                logger.error(f"Failed to unregister from web_server: {e}")
+            
+            logger.info(f"Force stopped trading for user {user_id} (was_running: {was_running})")
+            
+            return {
+                "success": True,
+                "message": "Trading force stopped",
+                "was_running": was_running
+            }
+            
+        except Exception as e:
+            logger.error(f"Force stop failed for user {user_id}: {e}")
+            return {
+                "success": False,
+                "message": str(e),
+                "was_running": False
+            }
+    
+    def get_trading_state(self, user_id: int) -> Optional[str]:
+        """Get current trading state for a user"""
+        if user_id not in self._trading_managers:
+            return None
+        return self._trading_managers[user_id].state.value
     
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /status command"""
@@ -667,6 +746,8 @@ Klik tombol di bawah untuk memulai:"""
             await self._handle_menu_callback(query, user, data, context)
         elif data.startswith("confirm_"):
             await self._handle_confirm_callback(query, user, data, context)
+        elif data == "force_restart_trading":
+            await self._handle_force_restart_trading(query, user, context)
         elif data == "switch_account":
             await self._handle_switch_account(query, user)
     
@@ -932,11 +1013,12 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
                 self._ws_connections[user.id].disconnect()
                 del self._ws_connections[user.id]
             
-            # Clear session_manager data
+            # Clear session_manager data and unregister trading manager
             try:
-                from web_server import session_manager, unregister_deriv_connection
+                from web_server import session_manager, unregister_deriv_connection, unregister_trading_manager
                 session_manager.clear_user_data(user.id)
                 unregister_deriv_connection(user.id)
+                unregister_trading_manager(user.id)
             except Exception as e:
                 logger.error(f"Failed to clear session_manager: {e}")
             
@@ -950,6 +1032,15 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         elif action == "stop_trading":
             if user.id in self._trading_managers:
                 self._trading_managers[user.id].stop()
+                del self._trading_managers[user.id]
+                
+                # Unregister from web_server
+                try:
+                    from web_server import unregister_trading_manager
+                    unregister_trading_manager(user.id)
+                except Exception as e:
+                    logger.error(f"Failed to unregister trading manager: {e}")
+                
                 await query.edit_message_text(
                     "⏹️ Trading dihentikan.",
                     reply_markup=InlineKeyboardMarkup([
@@ -957,20 +1048,51 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
                     ])
                 )
     
+    async def _handle_force_restart_trading(self, query, user, context):
+        """Handle force restart trading - stops any existing trading and starts fresh"""
+        try:
+            # Force stop existing trading manager
+            result = self.force_stop_trading(user.id)
+            logger.info(f"Force restart for user {user.id}: {result}")
+            
+            await query.edit_message_text(
+                "🔄 <b>Force Restart</b>\n\n"
+                "Trading lama dihentikan paksa.\n"
+                "Memulai trading baru...",
+                parse_mode=ParseMode.HTML
+            )
+            
+            # Small delay to ensure cleanup
+            await asyncio.sleep(0.5)
+            
+            # Start new trading session
+            await self._start_trading(query, user, context)
+            
+        except Exception as e:
+            logger.error(f"Force restart failed for user {user.id}: {e}")
+            await query.edit_message_text(
+                f"❌ Gagal force restart: {str(e)}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 Menu", callback_data="menu_main")]
+                ])
+            )
+    
     async def _handle_switch_account(self, query, user):
         """Handle account switch"""
         if user.id in self._trading_managers:
             self._trading_managers[user.id].stop()
+            del self._trading_managers[user.id]
         
         if user.id in self._ws_connections:
             self._ws_connections[user.id].disconnect()
             del self._ws_connections[user.id]
         
-        # Clear session_manager data
+        # Clear session_manager data and unregister trading manager
         try:
-            from web_server import session_manager, unregister_deriv_connection
+            from web_server import session_manager, unregister_deriv_connection, unregister_trading_manager
             session_manager.clear_user_data(user.id)
             unregister_deriv_connection(user.id)
+            unregister_trading_manager(user.id)
         except Exception as e:
             logger.error(f"Failed to clear session_manager: {e}")
         
@@ -1160,13 +1282,35 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             strategy=strategy_type
         )
         
-        # Create or get trading manager
-        if user.id not in self._trading_managers:
-            tm = TradingManager(ws, config)
-            self._trading_managers[user.id] = tm
-        else:
-            tm = self._trading_managers[user.id]
-            tm.update_config(config)
+        # Force stop and cleanup any existing trading manager
+        if user.id in self._trading_managers:
+            old_tm = self._trading_managers[user.id]
+            if old_tm.state in [TradingState.RUNNING, TradingState.PAUSED, TradingState.STOPPING]:
+                logger.info(f"Force stopping existing trading manager for user {user.id} (state: {old_tm.state.value})")
+                try:
+                    old_tm.stop()
+                except Exception as e:
+                    logger.error(f"Error stopping old trading manager: {e}")
+            del self._trading_managers[user.id]
+            
+            # Unregister old manager from web_server
+            try:
+                from web_server import unregister_trading_manager
+                unregister_trading_manager(user.id)
+            except Exception as e:
+                logger.error(f"Error unregistering old trading manager: {e}")
+        
+        # Always create a fresh TradingManager to avoid stuck state issues
+        tm = TradingManager(ws, config)
+        self._trading_managers[user.id] = tm
+        
+        # Register with web_server for API access
+        try:
+            from web_server import register_trading_manager
+            register_trading_manager(user.id, tm)
+            logger.info(f"Registered trading manager with web_server for user {user.id}")
+        except Exception as e:
+            logger.error(f"Failed to register trading manager with web_server: {e}")
         
         # Setup callbacks for real-time notifications
         chat_id = query.message.chat_id

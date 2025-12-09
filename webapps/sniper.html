@@ -16,6 +16,7 @@
             --accent-blue: #58a6ff;
             --accent-green: #39d353;
             --accent-red: #f85149;
+            --accent-yellow: #d29922;
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -53,6 +54,127 @@
             border-radius: 20px;
             font-weight: 600;
             color: var(--accent-green);
+        }
+        .auto-trade-section {
+            background: linear-gradient(135deg, var(--bg-secondary), #1a1a2e);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .auto-trade-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .auto-trade-header h3 {
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-badge.running {
+            background: rgba(57, 211, 83, 0.15);
+            color: var(--accent-green);
+            border: 1px solid var(--accent-green);
+        }
+        .status-badge.stopped {
+            background: rgba(248, 81, 73, 0.15);
+            color: var(--accent-red);
+            border: 1px solid var(--accent-red);
+        }
+        .status-badge.connecting {
+            background: rgba(210, 153, 34, 0.15);
+            color: var(--accent-yellow);
+            border: 1px solid var(--accent-yellow);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .auto-trade-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px;
+            background: var(--bg-card);
+            border-radius: 8px;
+        }
+        .toggle-switch {
+            width: 50px;
+            height: 26px;
+            background: var(--border-color);
+            border-radius: 13px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .toggle-switch.active {
+            background: var(--accent-green);
+        }
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.3s;
+        }
+        .toggle-switch.active::after {
+            transform: translateX(24px);
+        }
+        .auto-trade-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .auto-stat-item {
+            background: var(--bg-card);
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .auto-stat-item .label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+        .auto-stat-item .value {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-top: 2px;
+        }
+        .auto-stat-item .value.profit { color: var(--accent-green); }
+        .auto-stat-item .value.loss { color: var(--accent-red); }
+        .ws-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 8px;
+        }
+        .ws-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-red);
+        }
+        .ws-dot.connected {
+            background: var(--accent-green);
         }
         .sniper-status {
             background: linear-gradient(135deg, var(--bg-secondary), #1a1a2e);
@@ -264,11 +386,6 @@
         }
         .sniper-btn.active {
             background: linear-gradient(135deg, var(--accent-green), #238636);
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(57, 211, 83, 0.4); }
-            50% { box-shadow: 0 0 0 10px rgba(57, 211, 83, 0); }
         }
         .sniper-btn:disabled {
             opacity: 0.5;
@@ -308,6 +425,38 @@
             <h1>Sniper</h1>
         </div>
         <div class="balance-badge" id="balance">$0.00</div>
+    </div>
+
+    <div class="auto-trade-section">
+        <div class="auto-trade-header">
+            <h3>Auto Trade <span class="status-badge stopped" id="autoTradeStatus">STOPPED</span></h3>
+        </div>
+        <div class="auto-trade-toggle">
+            <span>Enable Auto Trading</span>
+            <div class="toggle-switch" id="autoTradeToggle" onclick="toggleAutoTrade()"></div>
+        </div>
+        <div class="auto-trade-stats">
+            <div class="auto-stat-item">
+                <div class="label">Total Trades</div>
+                <div class="value" id="autoTotalTrades">0</div>
+            </div>
+            <div class="auto-stat-item">
+                <div class="label">Win Rate</div>
+                <div class="value" id="autoWinRate">0%</div>
+            </div>
+            <div class="auto-stat-item">
+                <div class="label">Profit/Loss</div>
+                <div class="value profit" id="autoProfitLoss">$0.00</div>
+            </div>
+            <div class="auto-stat-item">
+                <div class="label">Balance</div>
+                <div class="value" id="autoBalance">$0.00</div>
+            </div>
+        </div>
+        <div class="ws-status">
+            <div class="ws-dot" id="wsDot"></div>
+            <span id="wsStatusText">Disconnected</span>
+        </div>
     </div>
 
     <div class="sniper-status">
@@ -407,15 +556,191 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
         const DERIV_APP_ID = 1089;
+        const STRATEGY_NAME = 'sniper';
         let ws = null;
+        let botWs = null;
         let authToken = null;
+        let telegramId = null;
         let currentSymbol = 'R_100';
         let ticks = [];
         let isSniperActive = false;
+        let isAutoTrading = false;
         let isTrading = false;
         let minConfidence = 85;
         let signals = [];
         let stats = { wins: 0, losses: 0, profit: 0 };
+        let statusSyncInterval = null;
+
+        function getTelegramId() {
+            return window.Telegram?.WebApp?.initDataUnsafe?.user?.id || null;
+        }
+
+        function connectBotWebSocket() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/stream`;
+            
+            updateWsStatus('connecting');
+            
+            botWs = new WebSocket(wsUrl);
+            
+            botWs.onopen = () => {
+                updateWsStatus('connected');
+                if (telegramId) {
+                    botWs.send(JSON.stringify({ type: 'subscribe', telegram_id: telegramId }));
+                }
+            };
+            
+            botWs.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleTradingEvent(data);
+                } catch (e) {
+                    console.error('Error parsing WebSocket message:', e);
+                }
+            };
+            
+            botWs.onclose = () => {
+                updateWsStatus('disconnected');
+                setTimeout(connectBotWebSocket, 5000);
+            };
+            
+            botWs.onerror = () => updateWsStatus('disconnected');
+        }
+
+        function updateWsStatus(status) {
+            const dot = document.getElementById('wsDot');
+            const text = document.getElementById('wsStatusText');
+            
+            if (status === 'connected') {
+                dot.classList.add('connected');
+                text.textContent = 'Connected';
+            } else if (status === 'connecting') {
+                dot.classList.remove('connected');
+                text.textContent = 'Connecting...';
+            } else {
+                dot.classList.remove('connected');
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        function handleTradingEvent(data) {
+            switch(data.type) {
+                case 'trade_closed':
+                    syncTradingStatus();
+                    break;
+                case 'status_update':
+                    updateTradingUI(data);
+                    break;
+            }
+        }
+
+        async function startAutoTrade() {
+            if (!telegramId) { alert('Please login via Telegram first'); return; }
+
+            const stake = parseFloat(document.getElementById('stake').value);
+            
+            try {
+                updateAutoTradeStatus('connecting');
+                
+                const response = await fetch('/api/trading/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        telegram_id: telegramId,
+                        symbol: currentSymbol,
+                        strategy: STRATEGY_NAME,
+                        stake: stake
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isAutoTrading = true;
+                    document.getElementById('autoTradeToggle').classList.add('active');
+                    updateAutoTradeStatus('running');
+                    startStatusSync();
+                } else {
+                    alert(data.error || 'Failed to start auto trading');
+                    document.getElementById('autoTradeToggle').classList.remove('active');
+                    updateAutoTradeStatus('stopped');
+                }
+            } catch (error) {
+                console.error('Error starting auto trade:', error);
+                document.getElementById('autoTradeToggle').classList.remove('active');
+                updateAutoTradeStatus('stopped');
+            }
+        }
+
+        async function stopAutoTrade() {
+            if (!telegramId) return;
+
+            try {
+                await fetch('/api/trading/stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ telegram_id: telegramId })
+                });
+                
+                isAutoTrading = false;
+                document.getElementById('autoTradeToggle').classList.remove('active');
+                updateAutoTradeStatus('stopped');
+                stopStatusSync();
+            } catch (error) {
+                console.error('Error stopping auto trade:', error);
+            }
+        }
+
+        function toggleAutoTrade() {
+            if (!telegramId) { alert('Please login via Telegram first'); return; }
+            if (isAutoTrading) stopAutoTrade();
+            else startAutoTrade();
+        }
+
+        async function syncTradingStatus() {
+            if (!telegramId) return;
+            try {
+                const response = await fetch(`/api/trading/status?telegram_id=${telegramId}`);
+                const data = await response.json();
+                if (data.success) updateTradingUI(data);
+            } catch (error) {
+                console.error('Error syncing trading status:', error);
+            }
+        }
+
+        function startStatusSync() {
+            if (statusSyncInterval) clearInterval(statusSyncInterval);
+            statusSyncInterval = setInterval(syncTradingStatus, 5000);
+        }
+
+        function stopStatusSync() {
+            if (statusSyncInterval) { clearInterval(statusSyncInterval); statusSyncInterval = null; }
+        }
+
+        function updateTradingUI(data) {
+            if (data.is_running !== undefined) {
+                isAutoTrading = data.is_running;
+                document.getElementById('autoTradeToggle').classList.toggle('active', isAutoTrading);
+                updateAutoTradeStatus(isAutoTrading ? 'running' : 'stopped');
+            }
+            if (data.total_trades !== undefined) document.getElementById('autoTotalTrades').textContent = data.total_trades;
+            if (data.win_rate !== undefined) document.getElementById('autoWinRate').textContent = `${data.win_rate.toFixed(1)}%`;
+            if (data.profit !== undefined) {
+                const el = document.getElementById('autoProfitLoss');
+                el.textContent = `$${data.profit.toFixed(2)}`;
+                el.className = `value ${data.profit >= 0 ? 'profit' : 'loss'}`;
+            }
+            if (data.balance !== undefined) {
+                document.getElementById('autoBalance').textContent = `$${data.balance.toFixed(2)}`;
+                document.getElementById('balance').textContent = `$${data.balance.toFixed(2)}`;
+            }
+        }
+
+        function updateAutoTradeStatus(status) {
+            const badge = document.getElementById('autoTradeStatus');
+            badge.className = 'status-badge ' + status;
+            badge.textContent = status.toUpperCase();
+        }
         
         function connectDeriv() {
             updateButtonState();
@@ -432,12 +757,14 @@
                 
                 if (data.authorize) {
                     document.getElementById('balance').textContent = `$${parseFloat(data.authorize.balance).toFixed(2)}`;
+                    document.getElementById('autoBalance').textContent = `$${parseFloat(data.authorize.balance).toFixed(2)}`;
                     ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
                     updateButtonState();
                 }
                 
                 if (data.balance) {
                     document.getElementById('balance').textContent = `$${parseFloat(data.balance.balance).toFixed(2)}`;
+                    document.getElementById('autoBalance').textContent = `$${parseFloat(data.balance.balance).toFixed(2)}`;
                 }
                 
                 if (data.tick) handleTick(data.tick);
@@ -462,100 +789,51 @@
             const price = parseFloat(tick.quote);
             ticks.push(price);
             if (ticks.length > 200) ticks.shift();
-            
-            if (ticks.length >= 50) {
-                analyzeMarket();
-            }
+            if (ticks.length >= 50) analyzeMarket();
         }
         
         function analyzeMarket() {
-            // Calculate indicators
             const rsi = calculateRSI(ticks, 14);
             const ema9 = calculateEMA(ticks, 9);
             const ema21 = calculateEMA(ticks, 21);
             const momentum = ticks[ticks.length - 1] - ticks[ticks.length - 10];
             const volatility = calculateVolatility(ticks);
             
-            // Trend analysis
             const trendEl = document.getElementById('trendValue');
-            if (ema9 > ema21 * 1.001) {
-                trendEl.textContent = 'BULLISH';
-                trendEl.className = 'value bullish';
-            } else if (ema9 < ema21 * 0.999) {
-                trendEl.textContent = 'BEARISH';
-                trendEl.className = 'value bearish';
-            } else {
-                trendEl.textContent = 'NEUTRAL';
-                trendEl.className = 'value neutral';
-            }
+            if (ema9 > ema21 * 1.001) { trendEl.textContent = 'BULLISH'; trendEl.className = 'value bullish'; }
+            else if (ema9 < ema21 * 0.999) { trendEl.textContent = 'BEARISH'; trendEl.className = 'value bearish'; }
+            else { trendEl.textContent = 'NEUTRAL'; trendEl.className = 'value neutral'; }
             
-            // Momentum
             const momentumEl = document.getElementById('momentumValue');
-            if (momentum > 0) {
-                momentumEl.textContent = 'STRONG UP';
-                momentumEl.className = 'value bullish';
-            } else if (momentum < 0) {
-                momentumEl.textContent = 'STRONG DOWN';
-                momentumEl.className = 'value bearish';
-            } else {
-                momentumEl.textContent = 'FLAT';
-                momentumEl.className = 'value neutral';
-            }
+            if (momentum > 0) { momentumEl.textContent = 'STRONG UP'; momentumEl.className = 'value bullish'; }
+            else if (momentum < 0) { momentumEl.textContent = 'STRONG DOWN'; momentumEl.className = 'value bearish'; }
+            else { momentumEl.textContent = 'FLAT'; momentumEl.className = 'value neutral'; }
             
-            // Volatility
             const volEl = document.getElementById('volatilityValue');
-            if (volatility > 0.002) {
-                volEl.textContent = 'HIGH';
-                volEl.className = 'value bearish';
-            } else if (volatility < 0.001) {
-                volEl.textContent = 'LOW';
-                volEl.className = 'value bullish';
-            } else {
-                volEl.textContent = 'NORMAL';
-                volEl.className = 'value neutral';
-            }
+            if (volatility > 0.002) { volEl.textContent = 'HIGH'; volEl.className = 'value bearish'; }
+            else if (volatility < 0.001) { volEl.textContent = 'LOW'; volEl.className = 'value bullish'; }
+            else { volEl.textContent = 'NORMAL'; volEl.className = 'value neutral'; }
             
-            // Pattern detection
             const patternEl = document.getElementById('patternValue');
             const pattern = detectPattern(ticks);
             patternEl.textContent = pattern.name;
             patternEl.className = `value ${pattern.type}`;
             
-            // Calculate overall confidence
-            let confidence = 0;
-            let direction = null;
+            let confidence = 0, direction = null;
             
-            // RSI signal
-            if (rsi < 25) {
-                confidence += 25;
-                direction = 'CALL';
-            } else if (rsi > 75) {
-                confidence += 25;
-                direction = 'PUT';
-            }
+            if (rsi < 25) { confidence += 25; direction = 'CALL'; }
+            else if (rsi > 75) { confidence += 25; direction = 'PUT'; }
             
-            // EMA signal
-            if (ema9 > ema21) {
-                confidence += direction === 'CALL' ? 20 : -10;
-                if (!direction) direction = 'CALL';
-            } else {
-                confidence += direction === 'PUT' ? 20 : -10;
-                if (!direction) direction = 'PUT';
-            }
+            if (ema9 > ema21) { confidence += direction === 'CALL' ? 20 : -10; if (!direction) direction = 'CALL'; }
+            else { confidence += direction === 'PUT' ? 20 : -10; if (!direction) direction = 'PUT'; }
             
-            // Momentum signal
             if (momentum > 0 && direction === 'CALL') confidence += 20;
             if (momentum < 0 && direction === 'PUT') confidence += 20;
-            
-            // Volatility bonus
             if (volatility < 0.0015) confidence += 15;
-            
-            // Pattern bonus
             if (pattern.type !== 'neutral') confidence += 15;
             
             confidence = Math.max(0, Math.min(100, confidence));
             
-            // Update UI
             document.getElementById('confidenceValue').textContent = `${confidence}%`;
             document.getElementById('confidenceFill').style.width = `${confidence}%`;
             
@@ -566,14 +844,8 @@
                 statusText.textContent = 'TARGET ACQUIRED';
                 statusText.className = 'status-text ready';
                 statusSubtext.textContent = `${direction} signal at ${confidence}% confidence`;
-                
-                // Add to signal queue
                 addSignal(direction, confidence);
-                
-                // Execute trade if sniper is active
-                if (isSniperActive && !isTrading) {
-                    executeTrade(direction);
-                }
+                if (isSniperActive && !isTrading) executeTrade(direction);
             } else {
                 statusText.textContent = 'HUNTING...';
                 statusText.className = 'status-text hunting';
@@ -583,70 +855,48 @@
         
         function calculateRSI(prices, period) {
             if (prices.length < period + 1) return 50;
-            
             let gains = 0, losses = 0;
             for (let i = prices.length - period; i < prices.length; i++) {
                 const diff = prices[i] - prices[i - 1];
-                if (diff > 0) gains += diff;
-                else losses -= diff;
+                if (diff > 0) gains += diff; else losses -= diff;
             }
-            
-            const avgGain = gains / period;
-            const avgLoss = losses / period;
-            
+            const avgGain = gains / period, avgLoss = losses / period;
             if (avgLoss === 0) return 100;
-            const rs = avgGain / avgLoss;
-            return 100 - (100 / (1 + rs));
+            return 100 - (100 / (1 + avgGain / avgLoss));
         }
         
         function calculateEMA(prices, period) {
             if (prices.length < period) return prices[prices.length - 1];
-            
             const multiplier = 2 / (period + 1);
             let ema = prices.slice(0, period).reduce((a, b) => a + b) / period;
-            
-            for (let i = period; i < prices.length; i++) {
-                ema = (prices[i] - ema) * multiplier + ema;
-            }
-            
+            for (let i = period; i < prices.length; i++) ema = (prices[i] - ema) * multiplier + ema;
             return ema;
         }
         
         function calculateVolatility(prices) {
             if (prices.length < 20) return 0;
-            
             const recent = prices.slice(-20);
             const mean = recent.reduce((a, b) => a + b) / recent.length;
             const variance = recent.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / recent.length;
-            
             return Math.sqrt(variance) / mean;
         }
         
         function detectPattern(prices) {
             if (prices.length < 10) return { name: 'ANALYZING', type: 'neutral' };
-            
             const recent = prices.slice(-10);
-            const first5 = recent.slice(0, 5);
-            const last5 = recent.slice(5);
-            
+            const first5 = recent.slice(0, 5), last5 = recent.slice(5);
             const firstAvg = first5.reduce((a, b) => a + b) / 5;
             const lastAvg = last5.reduce((a, b) => a + b) / 5;
-            
-            if (lastAvg > firstAvg * 1.002) {
-                return { name: 'RISING', type: 'bullish' };
-            } else if (lastAvg < firstAvg * 0.998) {
-                return { name: 'FALLING', type: 'bearish' };
-            } else {
-                return { name: 'RANGING', type: 'neutral' };
-            }
+            if (lastAvg > firstAvg * 1.002) return { name: 'RISING', type: 'bullish' };
+            else if (lastAvg < firstAvg * 0.998) return { name: 'FALLING', type: 'bearish' };
+            return { name: 'RANGING', type: 'neutral' };
         }
         
         function addSignal(direction, confidence) {
             signals.unshift({ direction, confidence, time: new Date().toLocaleTimeString() });
             if (signals.length > 5) signals.pop();
             
-            const container = document.getElementById('signalQueue');
-            container.innerHTML = signals.map(s => `
+            document.getElementById('signalQueue').innerHTML = signals.map(s => `
                 <div class="signal-item">
                     <div class="direction ${s.direction.toLowerCase()}">
                         ${s.direction === 'CALL' ? '↑' : '↓'} ${s.direction}
@@ -658,19 +908,10 @@
         }
         
         function toggleSniper() {
-            if (!authToken) {
-                alert('Please login first via Telegram bot');
-                return;
-            }
-            
-            if (!ws || ws.readyState !== WebSocket.OPEN) {
-                alert('WebSocket not connected. Reconnecting...');
-                connectDeriv();
-                return;
-            }
+            if (!authToken) { alert('Please login first via Telegram bot'); return; }
+            if (!ws || ws.readyState !== WebSocket.OPEN) { alert('WebSocket not connected. Reconnecting...'); connectDeriv(); return; }
             
             isSniperActive = !isSniperActive;
-            
             const btn = document.getElementById('sniperBtn');
             btn.classList.toggle('active', isSniperActive);
             btn.innerHTML = isSniperActive ? '<span>SNIPER ACTIVE</span>' : '<span>START SNIPER</span>';
@@ -678,59 +919,33 @@
         
         function updateButtonState() {
             const btn = document.getElementById('sniperBtn');
-            if (!authToken) {
-                btn.disabled = true;
-                btn.innerHTML = '<span>LOGIN REQUIRED</span>';
-            } else if (!ws || ws.readyState !== WebSocket.OPEN) {
-                btn.disabled = true;
-                btn.innerHTML = '<span>CONNECTING...</span>';
-            } else {
-                btn.disabled = false;
-                btn.innerHTML = isSniperActive ? '<span>SNIPER ACTIVE</span>' : '<span>START SNIPER</span>';
-            }
+            if (!authToken) { btn.disabled = true; btn.innerHTML = '<span>LOGIN REQUIRED</span>'; }
+            else if (!ws || ws.readyState !== WebSocket.OPEN) { btn.disabled = true; btn.innerHTML = '<span>CONNECTING...</span>'; }
+            else { btn.disabled = false; btn.innerHTML = isSniperActive ? '<span>SNIPER ACTIVE</span>' : '<span>START SNIPER</span>'; }
         }
         
         function executeTrade(direction) {
             if (!authToken || isTrading) return;
-            
             isTrading = true;
             const stake = parseFloat(document.getElementById('stake').value);
             
             ws.send(JSON.stringify({
-                buy: 1,
-                subscribe: 1,
-                price: stake,
-                parameters: {
-                    contract_type: direction,
-                    symbol: currentSymbol,
-                    duration: 5,
-                    duration_unit: 't',
-                    basis: 'stake',
-                    amount: stake,
-                    currency: 'USD'
-                }
+                buy: 1, subscribe: 1, price: stake,
+                parameters: { contract_type: direction, symbol: currentSymbol, duration: 5, duration_unit: 't', basis: 'stake', amount: stake, currency: 'USD' }
             }));
         }
         
         function handleContractResult(contract) {
             isTrading = false;
-            
             const profit = parseFloat(contract.profit);
-            if (profit > 0) {
-                stats.wins++;
-                stats.profit += profit;
-            } else {
-                stats.losses++;
-                stats.profit += profit;
-            }
-            
+            if (profit > 0) { stats.wins++; stats.profit += profit; }
+            else { stats.losses++; stats.profit += profit; }
             updateStats();
         }
         
         function updateStats() {
             const total = stats.wins + stats.losses;
             const winRate = total > 0 ? (stats.wins / total * 100).toFixed(1) : 0;
-            
             document.getElementById('totalTrades').textContent = total;
             document.getElementById('winRate').textContent = `${winRate}%`;
             document.getElementById('profit').textContent = `$${stats.profit.toFixed(2)}`;
@@ -745,37 +960,14 @@
         
         function changeSymbol() {
             currentSymbol = document.getElementById('symbolSelect').value;
-            ticks = [];
-            signals = [];
+            ticks = []; signals = [];
             document.getElementById('signalQueue').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">No signals yet - analyzing market...</div>';
-            
             ws.send(JSON.stringify({ forget_all: 'ticks' }));
             setTimeout(() => ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 })), 500);
         }
-        
-        // Check if user should be redirected to a different strategy page
-        async function checkStrategyRedirect() {
-            const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-            if (!tgUser?.id) return false;
 
-            try {
-                const response = await fetch(`/api/telegram/get-strategy?telegram_id=${tgUser.id}`);
-                const data = await response.json();
-
-                // If a strategy is set and the current page doesn't match the strategy's route, redirect.
-                if (data.strategy && data.route && window.location.pathname !== data.route) {
-                    window.location.href = data.route;
-                    return true; // Indicates a redirect is happening.
-                }
-            } catch (error) {
-                console.error('Failed to fetch strategy for redirect:', error);
-            }
-
-            return false; // No redirect needed.
-        }
-        
-        // Initialize with Telegram token check (secured with initData)
         async function initPage() {
+            telegramId = getTelegramId();
             updateButtonState();
             
             if (window.Telegram?.WebApp) {
@@ -783,13 +975,7 @@
                 tg.expand();
                 tg.ready();
                 
-                // Check for strategy redirect before proceeding
-                if (await checkStrategyRedirect()) {
-                    return;
-                }
-                
                 const initData = tg.initData;
-                
                 if (initData) {
                     try {
                         const resp = await fetch('/api/telegram/get-deriv-token', {
@@ -809,11 +995,12 @@
             }
             
             if (!authToken) {
-                // Show info instead of redirect - allow viewing without trading
                 document.getElementById('balance').textContent = 'Not logged in';
                 updateButtonState();
             } else {
                 connectDeriv();
+                connectBotWebSocket();
+                syncTradingStatus();
             }
         }
         

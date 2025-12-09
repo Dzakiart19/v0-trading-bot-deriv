@@ -14,15 +14,19 @@ def _early_cleanup():
         "logs/user_auth.json",
         "logs/session_recovery.json", 
         "logs/chat_mapping.json",
-        "logs/.session_secret"
+        "logs/.session_secret",
+        "logs/trading_state.json"
     ]
     
     for file_path in log_files:
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
+                print(f"[STARTUP] Cleared: {file_path}")
         except:
             pass
+    
+    print("[STARTUP] Trading state cleared - fresh start")
 
 # Run cleanup immediately before any other imports
 _early_cleanup()
@@ -52,13 +56,38 @@ bot: Optional[TelegramBot] = None
 shutdown_event = asyncio.Event()
 
 
+def clear_trading_managers():
+    """Clear all trading managers from memory on startup/shutdown"""
+    try:
+        # Clear from web_server
+        web_server.trading_managers.clear()
+        web_server.deriv_connections.clear()
+        web_server.session_manager.sessions.clear()
+        web_server.session_manager.telegram_to_session.clear()
+        web_server.session_manager.user_strategy.clear()
+        web_server.session_manager.deriv_tokens.clear()
+        web_server.session_manager.deriv_accounts.clear()
+        logger.info("Cleared all trading managers and sessions from web_server")
+    except Exception as e:
+        logger.error(f"Failed to clear web_server state: {e}")
+    
+    try:
+        # Clear from telegram_bot if it has trading managers
+        from telegram_bot import TelegramBot
+        # Note: TelegramBot instance's _trading_managers will be cleared when bot restarts
+        logger.info("Telegram bot trading managers will be cleared on restart")
+    except Exception as e:
+        logger.error(f"Failed to import telegram_bot: {e}")
+
+
 def clear_session_files():
     """Clear all session/log files on shutdown"""
     log_files = [
         "logs/user_auth.json",
         "logs/session_recovery.json", 
         "logs/chat_mapping.json",
-        "logs/.session_secret"
+        "logs/.session_secret",
+        "logs/trading_state.json"
     ]
     
     for file_path in log_files:
@@ -111,6 +140,10 @@ async def main():
         logger.info("Starting Telegram Bot...")
         bot = TelegramBot(telegram_token, webapp_base_url=webapp_base_url)
         await bot.start()
+        
+        # Clear all trading managers from memory after bot start
+        clear_trading_managers()
+        logger.info("Trading state cleared from memory - ready for fresh trading")
         
         logger.info("")
         logger.info("=" * 60)
