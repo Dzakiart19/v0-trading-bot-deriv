@@ -18,7 +18,7 @@ class DerivWebSocket:
     
     WS_URL = "wss://ws.derivws.com/websockets/v3?app_id={app_id}"
     
-    def __init__(self, app_id: str = None):
+    def __init__(self, app_id: Optional[str] = None):
         import os
         if app_id is None:
             app_id = os.environ.get("DERIV_APP_ID", "1089")
@@ -136,6 +136,9 @@ class DerivWebSocket:
         """Run WebSocket in thread"""
         while self._running:
             try:
+                if self.ws is None:
+                    logger.error("WebSocket is None, cannot run")
+                    break
                 self.ws.run_forever(ping_interval=30, ping_timeout=10)
             except Exception as e:
                 logger.error(f"WebSocket run error: {e}")

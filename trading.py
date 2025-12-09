@@ -77,7 +77,7 @@ class TradingManager:
     RECOVERY_FILE = "logs/session_recovery.json"
     MAX_SESSION_LOSS_PCT = 0.20  # 20% of balance
     
-    def __init__(self, ws: DerivWebSocket, config: TradingConfig = None):
+    def __init__(self, ws: DerivWebSocket, config: Optional[TradingConfig] = None):
         self.ws = ws
         self.state = TradingState.IDLE
         self.config: Optional[TradingConfig] = config

@@ -88,11 +88,22 @@ class ConnectionManager:
         logger.info(f"WebSocket connected: user_id={user_id}, telegram_id={telegram_id}")
     
     def disconnect(self, user_id: str):
+        """Remove connection from tracking (sync version for compatibility)"""
+        ws = self.active_connections.pop(user_id, None)
         info = self.connection_info.pop(user_id, None)
-        self.active_connections.pop(user_id, None)
         if info and info.get("telegram_id"):
             self.telegram_to_user.pop(info["telegram_id"], None)
         logger.info(f"WebSocket disconnected: {user_id}")
+        return ws
+    
+    async def disconnect_and_close(self, user_id: str):
+        """Remove connection and close WebSocket properly"""
+        ws = self.disconnect(user_id)
+        if ws:
+            try:
+                await ws.close()
+            except Exception as e:
+                logger.debug(f"Error closing WebSocket for {user_id}: {e}")
     
     def update_pong(self, user_id: str):
         """Update last pong timestamp when client responds to ping"""
@@ -148,6 +159,64 @@ class ConnectionManager:
             {"user_id": uid, **info}
             for uid, info in self.connection_info.items()
         ]
+    
+    async def start_heartbeat(self):
+        """Start server-side heartbeat background task"""
+        if self._heartbeat_task is None or self._heartbeat_task.done():
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            logger.info("Started WebSocket heartbeat task")
+    
+    async def stop_heartbeat(self):
+        """Stop server-side heartbeat background task"""
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Stopped WebSocket heartbeat task")
+    
+    async def _heartbeat_loop(self):
+        """Background loop to ping clients and remove stale connections"""
+        while True:
+            try:
+                await asyncio.sleep(self._heartbeat_interval)
+                current_time = datetime.now().timestamp()
+                
+                users_to_disconnect = []
+                
+                for user_id in list(self.active_connections.keys()):
+                    info = self.connection_info.get(user_id)
+                    if not info:
+                        continue
+                    
+                    last_pong = info.get("last_pong", current_time)
+                    time_since_pong = current_time - last_pong
+                    
+                    if time_since_pong > self._connection_timeout:
+                        logger.warning(f"Connection timeout for {user_id} (no pong for {time_since_pong:.1f}s)")
+                        users_to_disconnect.append(user_id)
+                    else:
+                        ws = self.active_connections.get(user_id)
+                        if ws:
+                            try:
+                                await ws.send_json({
+                                    "type": "ping",
+                                    "timestamp": current_time
+                                })
+                                self.connection_info[user_id]["last_ping"] = current_time
+                            except Exception as e:
+                                logger.error(f"Error sending ping to {user_id}: {e}")
+                                users_to_disconnect.append(user_id)
+                
+                for user_id in users_to_disconnect:
+                    await self.disconnect_and_close(user_id)
+                            
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Heartbeat loop error: {e}")
+                await asyncio.sleep(5)
 
 
 # ==================== Session Manager ====================
@@ -225,6 +294,7 @@ class WebSessionManager:
 
 manager = ConnectionManager()
 session_manager = WebSessionManager()
+_main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
 # ==================== Trade Event Broadcasting ====================
@@ -401,9 +471,121 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 DERIV_APP_ID = os.environ.get("DERIV_APP_ID", "1089")
 
 
+# ==================== Trading Manager Registration ====================
+
+def register_trading_manager(telegram_id: int, trading_manager: TradingManager):
+    """
+    Register a TradingManager and set up WebSocket broadcasting callbacks.
+    
+    This function connects the TradingManager's trade events to the WebSocket
+    broadcasting system so clients receive real-time updates.
+    
+    Uses asyncio.run_coroutine_threadsafe() to safely schedule coroutines
+    from worker threads back to the main event loop.
+    
+    Args:
+        telegram_id: The Telegram user ID
+        trading_manager: The TradingManager instance to register
+    """
+    
+    def on_trade_opened(trade_data: dict):
+        """Callback when trade is opened - broadcast to WebSocket (thread-safe)"""
+        if _main_event_loop is None:
+            logger.warning("Main event loop not available for trade_opened broadcast")
+            return
+        try:
+            coro = broadcast_trade_opened(
+                contract_id=str(trade_data.get("contract_id", "")),
+                stake=trade_data.get("stake", 0),
+                contract_type=trade_data.get("contract_type", ""),
+                symbol=trade_data.get("symbol", ""),
+                telegram_id=telegram_id
+            )
+            asyncio.run_coroutine_threadsafe(coro, _main_event_loop)
+        except Exception as e:
+            logger.error(f"Error scheduling trade_opened broadcast: {e}")
+    
+    def on_trade_closed(trade_data: dict):
+        """Callback when trade is closed - broadcast to WebSocket (thread-safe)"""
+        if _main_event_loop is None:
+            logger.warning("Main event loop not available for trade_closed broadcast")
+            return
+        try:
+            coro = broadcast_trade_closed(
+                profit=trade_data.get("profit", 0),
+                balance=trade_data.get("balance", 0),
+                trades=trade_data.get("trades", 0),
+                win_rate=trade_data.get("win_rate", 0),
+                contract_id=str(trade_data.get("contract_id", "")),
+                telegram_id=telegram_id
+            )
+            asyncio.run_coroutine_threadsafe(coro, _main_event_loop)
+        except Exception as e:
+            logger.error(f"Error scheduling trade_closed broadcast: {e}")
+    
+    def on_session_complete(session_data: dict):
+        """Callback when session ends - broadcast final status (thread-safe)"""
+        if _main_event_loop is None:
+            logger.warning("Main event loop not available for session_complete broadcast")
+            return
+        try:
+            coro = broadcast_status_update(
+                is_running=False,
+                trades=session_data.get("trades", 0),
+                profit=session_data.get("profit", 0),
+                win_rate=session_data.get("win_rate", 0),
+                balance=session_data.get("final_balance", 0),
+                telegram_id=telegram_id
+            )
+            asyncio.run_coroutine_threadsafe(coro, _main_event_loop)
+        except Exception as e:
+            logger.error(f"Error scheduling session_complete broadcast: {e}")
+    
+    trading_manager.on_trade_opened = on_trade_opened
+    trading_manager.on_trade_closed = on_trade_closed
+    trading_manager.on_session_complete = on_session_complete
+    
+    trading_managers[telegram_id] = trading_manager
+    logger.info(f"Registered TradingManager for telegram_id: {telegram_id}")
+
+
+def unregister_trading_manager(telegram_id: int):
+    """
+    Unregister a TradingManager and clean up callbacks.
+    
+    Args:
+        telegram_id: The Telegram user ID
+    """
+    if telegram_id in trading_managers:
+        tm = trading_managers.pop(telegram_id)
+        tm.on_trade_opened = None
+        tm.on_trade_closed = None
+        tm.on_session_complete = None
+        logger.info(f"Unregistered TradingManager for telegram_id: {telegram_id}")
+
+
 # ==================== FastAPI App ====================
 
 app = FastAPI(title="Deriv Trading Bot API", version="2.0")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Start heartbeat and initialize state on server startup"""
+    global _main_event_loop
+    logger.info("Starting web server...")
+    _main_event_loop = asyncio.get_running_loop()
+    await manager.start_heartbeat()
+    logger.info("Web server started successfully")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up on server shutdown"""
+    logger.info("Shutting down web server...")
+    await manager.stop_heartbeat()
+    clear_all_trading_state()
+    logger.info("Web server shutdown complete")
 
 app.add_middleware(
     CORSMiddleware,
