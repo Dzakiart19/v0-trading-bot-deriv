@@ -1,0 +1,47 @@
+BUG FIXES UNTUK DERIV TRADING BOT
+
+Ada 3 masalah utama yang harus diperbaiki:
+
+MASALAH 1: Error Telegram Parse Entities
+Error: telegram.error.BadRequest: Can't parse entities: can't find end of the entity starting at byte offset 68
+
+Penyebab: Format Markdown tidak valid pada pesan trading yang dikirim bot. Perlu escape karakter khusus dengan benar.
+
+Fix: Pada file , di method _start_trading sekitar line 1114, ganti penggunaan ParseMode.MARKDOWN dengan ParseMode.HTML dan escape karakter khusus (<, >, &).
+
+MASALAH 2: WebApp Tidak Redirect ke Strategi yang Dipilih
+
+Setelah user memilih strategi (misal: Sniper) di Telegram bot, ketika buka WebApp harusnya langsung ke halaman /sniper, tapi malah tetap di index.html menampilkan Deriv Account status.
+Fix:
+
+Di , pastikan saat handle callback strategi, kirim pesan dengan WebApp button yang langsung ke route strategi yang benar
+Di , tambahkan logic untuk auto-redirect jika ada strategi yang sudah dipilih dari Telegram
+Pastikan session_manager menyimpan strategi yang dipilih dengan benar
+MASALAH 3: Trading Tidak Jalan (Simulasi Mode)
+
+User klik "MULAI TRADING" tapi tidak ada trade yang terjadi. Bot hanya menampilkan status tapi tidak execute trade real.
+
+Penyebab:
+
+Trading manager sudah running tapi stuck atau tidak memproses tick
+Deriv WebSocket tidak subscribe dengan benar
+Signal processing tidak trigger trade execution
+Fix:
+
+Pastikan _on_tick callback terpanggil saat ada tick baru
+Pastikan _process_signal benar-benar execute trade via Deriv API
+Tambahkan logging lebih detail untuk debugging
+Pastikan tidak ada kondisi pending_result yang stuck
+MASALAH 4: Tombol "START SNIPER" Tidak Fungsi
+
+Di WebApp sniper.html, tombol tidak respond ketika diklik.
+
+Penyebab: Auth token tidak tersimpan dengan benar atau WebSocket Deriv tidak connect.
+
+Fix: Pastikan authToken ter-set sebelum user bisa klik tombol trading.
+Silakan perbaiki keempat masalah ini dengan:
+
+Fix error parsing Telegram message dengan HTML format yang benar
+Implementasi auto-redirect di WebApp ke strategi yang dipilih
+Debug dan fix trading execution flow agar benar-benar execute trade
+Pastikan semua tombol di WebApp ter-enable setelah auth berhasil
