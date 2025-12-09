@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deriv Trading Bot - WebApps</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #21262d;
+            --border-color: #30363d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #39d353;
+            --accent-red: #f85149;
+            --accent-yellow: #d29922;
+            --accent-purple: #a371f7;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            padding: 40px 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 40px;
+        }
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .header p {
+            color: var(--text-secondary);
+        }
+        .login-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 30px;
+        }
+        .login-section h2 {
+            font-size: 1.2rem;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .login-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--accent-red);
+        }
+        .status-dot.connected {
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .login-btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #ff444f, #c6313a);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(255, 68, 79, 0.3);
+        }
+        .login-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .account-info {
+            display: none;
+            padding: 16px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+        .account-info.show {
+            display: block;
+        }
+        .account-info .balance {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-green);
+        }
+        .strategies-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+        }
+        .strategy-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+        .strategy-card:hover {
+            border-color: var(--accent-blue);
+            transform: translateY(-4px);
+            box-shadow: 0 8px 30px rgba(88, 166, 255, 0.15);
+        }
+        .strategy-card .icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 16px;
+        }
+        .strategy-card.terminal .icon { background: linear-gradient(135deg, #58a6ff, #1f6feb); }
+        .strategy-card.tick-picker .icon { background: linear-gradient(135deg, #39d353, #238636); }
+        .strategy-card.digitpad .icon { background: linear-gradient(135deg, #a371f7, #8957e5); }
+        .strategy-card.amt .icon { background: linear-gradient(135deg, #d29922, #9e6a03); }
+        .strategy-card.sniper .icon { background: linear-gradient(135deg, #f85149, #da3633); }
+        .strategy-card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+        }
+        .strategy-card p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        .strategy-card .win-rate {
+            display: inline-block;
+            padding: 4px 10px;
+            background: rgba(57, 211, 83, 0.15);
+            color: var(--accent-green);
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-top: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Deriv Trading Bot</h1>
+            <p>Pilih strategi trading dan mulai auto trading</p>
+        </div>
+
+        <div class="login-section">
+            <h2>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>
+                Deriv Account
+            </h2>
+            <div class="login-status">
+                <div class="status-dot" id="statusDot"></div>
+                <div>
+                    <div id="statusText">Not Connected</div>
+                    <div style="color: var(--text-secondary); font-size: 0.85rem;" id="statusSubtext">Login to start trading</div>
+                </div>
+            </div>
+            <button class="login-btn" id="loginBtn" onclick="loginDeriv()">
+                Login with Deriv
+            </button>
+            <div class="account-info" id="accountInfo">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div style="color: var(--text-secondary); font-size: 0.85rem;">Balance</div>
+                        <div class="balance" id="balanceText">$0.00</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="color: var(--text-secondary); font-size: 0.85rem;">Account</div>
+                        <div id="accountId">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h2 style="margin-bottom: 20px; font-size: 1.2rem;">Pilih Strategi</h2>
+        <div class="strategies-grid">
+            <a href="terminal.html" class="strategy-card terminal">
+                <div class="icon">📊</div>
+                <h3>Terminal</h3>
+                <p>Smart Analysis dengan multiple indicators untuk prediksi akurat</p>
+                <span class="win-rate">80%+ Win Rate</span>
+            </a>
+            <a href="tick-picker.html" class="strategy-card tick-picker">
+                <div class="icon">📈</div>
+                <h3>Tick Picker</h3>
+                <p>Analisis pattern tick real-time untuk Rise/Fall prediction</p>
+                <span class="win-rate">75%+ Win Rate</span>
+            </a>
+            <a href="digitpad.html" class="strategy-card digitpad">
+                <div class="icon">🔢</div>
+                <h3>DigitPad</h3>
+                <p>Digit frequency heatmap untuk Digit Matches/Differs</p>
+                <span class="win-rate">78%+ Win Rate</span>
+            </a>
+            <a href="amt.html" class="strategy-card amt">
+                <div class="icon">📉</div>
+                <h3>AMT Accumulator</h3>
+                <p>Growth rate tracking dengan accumulator contracts</p>
+                <span class="win-rate">70%+ Win Rate</span>
+            </a>
+            <a href="sniper.html" class="strategy-card sniper">
+                <div class="icon">🎯</div>
+                <h3>Sniper</h3>
+                <p>High probability entries only, precision trading</p>
+                <span class="win-rate">85%+ Win Rate</span>
+            </a>
+        </div>
+    </div>
+
+    <script>
+        const DERIV_APP_ID = 1089;
+        const DERIV_OAUTH_URL = `https://oauth.deriv.com/oauth2/authorize?app_id=${DERIV_APP_ID}&l=EN&brand=deriv`;
+        
+        let ws = null;
+        let authToken = localStorage.getItem('deriv_token');
+        
+        function loginDeriv() {
+            const width = 600;
+            const height = 700;
+            const left = (window.innerWidth - width) / 2;
+            const top = (window.innerHeight - height) / 2;
+            
+            const popup = window.open(
+                DERIV_OAUTH_URL,
+                'DerivLogin',
+                `width=${width},height=${height},left=${left},top=${top}`
+            );
+            
+            // Listen for OAuth callback
+            window.addEventListener('message', handleOAuthMessage);
+        }
+        
+        function handleOAuthMessage(event) {
+            if (event.origin !== window.location.origin) return;
+            
+            if (event.data && event.data.token) {
+                authToken = event.data.token;
+                localStorage.setItem('deriv_token', authToken);
+                connectWebSocket();
+            }
+        }
+        
+        // Check URL for OAuth callback
+        function checkOAuthCallback() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const token1 = urlParams.get('token1');
+            const acct1 = urlParams.get('acct1');
+            
+            if (token1) {
+                authToken = token1;
+                localStorage.setItem('deriv_token', token1);
+                if (acct1) localStorage.setItem('deriv_account', acct1);
+                
+                // Clean URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+                
+                // Notify parent window if in popup
+                if (window.opener) {
+                    window.opener.postMessage({ token: token1, account: acct1 }, '*');
+                    window.close();
+                }
+                
+                connectWebSocket();
+            }
+        }
+        
+        function connectWebSocket() {
+            if (!authToken) return;
+            
+            document.getElementById('statusText').textContent = 'Connecting...';
+            
+            ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
+            
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ authorize: authToken }));
+            };
+            
+            ws.onmessage = (msg) => {
+                const data = JSON.parse(msg.data);
+                
+                if (data.authorize) {
+                    const auth = data.authorize;
+                    document.getElementById('statusDot').classList.add('connected');
+                    document.getElementById('statusText').textContent = 'Connected';
+                    document.getElementById('statusSubtext').textContent = auth.email || auth.loginid;
+                    document.getElementById('loginBtn').textContent = 'Connected';
+                    document.getElementById('loginBtn').disabled = true;
+                    document.getElementById('accountInfo').classList.add('show');
+                    document.getElementById('balanceText').textContent = `$${parseFloat(auth.balance).toFixed(2)}`;
+                    document.getElementById('accountId').textContent = auth.loginid;
+                    
+                    // Subscribe to balance updates
+                    ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+                }
+                
+                if (data.balance) {
+                    document.getElementById('balanceText').textContent = `$${parseFloat(data.balance.balance).toFixed(2)}`;
+                }
+                
+                if (data.error) {
+                    console.error('Deriv Error:', data.error);
+                    if (data.error.code === 'InvalidToken') {
+                        localStorage.removeItem('deriv_token');
+                        authToken = null;
+                        document.getElementById('statusText').textContent = 'Session Expired';
+                        document.getElementById('loginBtn').textContent = 'Login with Deriv';
+                        document.getElementById('loginBtn').disabled = false;
+                    }
+                }
+            };
+            
+            ws.onclose = () => {
+                document.getElementById('statusDot').classList.remove('connected');
+                document.getElementById('statusText').textContent = 'Disconnected';
+                setTimeout(() => {
+                    if (authToken) connectWebSocket();
+                }, 3000);
+            };
+        }
+        
+        // Initialize
+        checkOAuthCallback();
+        if (authToken) {
+            connectWebSocket();
+        }
+    </script>
+</body>
+</html>

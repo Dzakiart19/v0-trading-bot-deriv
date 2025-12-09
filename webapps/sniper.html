@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sniper - Deriv Trading Bot</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #21262d;
+            --border-color: #30363d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #39d353;
+            --accent-red: #f85149;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 16px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .back-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .balance-badge {
+            padding: 6px 12px;
+            background: var(--bg-card);
+            border-radius: 20px;
+            font-weight: 600;
+            color: var(--accent-green);
+        }
+        .sniper-status {
+            background: linear-gradient(135deg, var(--bg-secondary), #1a1a2e);
+            border: 1px solid var(--accent-red);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        .crosshair {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 16px;
+            position: relative;
+        }
+        .crosshair::before, .crosshair::after {
+            content: '';
+            position: absolute;
+            background: var(--accent-red);
+        }
+        .crosshair::before {
+            width: 2px;
+            height: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .crosshair::after {
+            width: 100%;
+            height: 2px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .crosshair .circle {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border: 2px solid var(--accent-red);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        .sniper-status .status-text {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .sniper-status .status-text.hunting { color: var(--accent-red); }
+        .sniper-status .status-text.ready { color: var(--accent-green); }
+        .sniper-status .sub-text {
+            color: var(--text-secondary);
+        }
+        .confidence-meter {
+            margin-top: 20px;
+            padding: 16px;
+            background: var(--bg-card);
+            border-radius: 12px;
+        }
+        .confidence-meter .label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+        .confidence-bar {
+            height: 12px;
+            background: var(--bg-primary);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-red), var(--accent-green));
+            border-radius: 6px;
+            transition: width 0.5s;
+        }
+        .threshold-marker {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 4px;
+        }
+        .threshold-marker span {
+            font-size: 0.75rem;
+            color: var(--accent-green);
+        }
+        .analysis-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .analysis-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .analysis-card .title {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+        .analysis-card .value {
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+        .analysis-card .value.bullish { color: var(--accent-green); }
+        .analysis-card .value.bearish { color: var(--accent-red); }
+        .analysis-card .value.neutral { color: var(--text-secondary); }
+        .signal-queue {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .signal-queue h3 {
+            font-size: 1rem;
+            margin-bottom: 12px;
+        }
+        .signal-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+        .signal-item:last-child {
+            margin-bottom: 0;
+        }
+        .signal-item .direction {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+        }
+        .signal-item .direction.call { color: var(--accent-green); }
+        .signal-item .direction.put { color: var(--accent-red); }
+        .signal-item .confidence {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .signal-item .confidence.high {
+            background: rgba(57, 211, 83, 0.15);
+            color: var(--accent-green);
+        }
+        .trade-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+        }
+        .min-confidence {
+            margin-bottom: 16px;
+        }
+        .min-confidence .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .min-confidence input[type="range"] {
+            width: 100%;
+            accent-color: var(--accent-red);
+        }
+        .sniper-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, var(--accent-red), #c6313a);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .sniper-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(248, 81, 73, 0.3);
+        }
+        .sniper-btn.active {
+            background: linear-gradient(135deg, var(--accent-green), #238636);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(57, 211, 83, 0.4); }
+            50% { box-shadow: 0 0 0 10px rgba(57, 211, 83, 0); }
+        }
+        .sniper-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .stats-bar {
+            display: flex;
+            justify-content: space-around;
+            padding: 12px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat .label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        .stat .value {
+            font-weight: 600;
+        }
+        .stat .value.profit { color: var(--accent-green); }
+        .stat .value.loss { color: var(--accent-red); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <button class="back-btn" onclick="window.location.href='index.html'">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <h1>Sniper</h1>
+        </div>
+        <div class="balance-badge" id="balance">$0.00</div>
+    </div>
+
+    <div class="sniper-status">
+        <div class="crosshair">
+            <div class="circle"></div>
+        </div>
+        <div class="status-text hunting" id="statusText">HUNTING...</div>
+        <div class="sub-text" id="statusSubtext">Waiting for high probability entry</div>
+        
+        <div class="confidence-meter">
+            <div class="label">
+                <span>Signal Confidence</span>
+                <span id="confidenceValue">0%</span>
+            </div>
+            <div class="confidence-bar">
+                <div class="confidence-fill" id="confidenceFill" style="width: 0%"></div>
+            </div>
+            <div class="threshold-marker">
+                <span>Min: <span id="thresholdDisplay">85%</span></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="analysis-grid">
+        <div class="analysis-card">
+            <div class="title">Trend</div>
+            <div class="value neutral" id="trendValue">-</div>
+        </div>
+        <div class="analysis-card">
+            <div class="title">Momentum</div>
+            <div class="value neutral" id="momentumValue">-</div>
+        </div>
+        <div class="analysis-card">
+            <div class="title">Volatility</div>
+            <div class="value neutral" id="volatilityValue">-</div>
+        </div>
+        <div class="analysis-card">
+            <div class="title">Pattern</div>
+            <div class="value neutral" id="patternValue">-</div>
+        </div>
+    </div>
+
+    <div class="signal-queue">
+        <h3>Signal Queue</h3>
+        <div id="signalQueue">
+            <div style="text-align: center; color: var(--text-secondary); padding: 20px;">
+                No signals yet - analyzing market...
+            </div>
+        </div>
+    </div>
+
+    <div class="trade-section">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Symbol</label>
+                <select id="symbolSelect" onchange="changeSymbol()">
+                    <option value="R_100">Volatility 100</option>
+                    <option value="R_75">Volatility 75</option>
+                    <option value="R_50">Volatility 50</option>
+                    <option value="R_25">Volatility 25</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Stake ($)</label>
+                <input type="number" id="stake" value="1" min="0.35" step="0.1">
+            </div>
+        </div>
+        
+        <div class="min-confidence">
+            <div class="header">
+                <label>Minimum Confidence</label>
+                <span id="minConfDisplay">85%</span>
+            </div>
+            <input type="range" id="minConfidence" min="70" max="95" value="85" oninput="updateMinConfidence()">
+        </div>
+        
+        <button class="sniper-btn" id="sniperBtn" onclick="toggleSniper()">
+            <span>START SNIPER</span>
+        </button>
+        
+        <div class="stats-bar">
+            <div class="stat">
+                <div class="label">Trades</div>
+                <div class="value" id="totalTrades">0</div>
+            </div>
+            <div class="stat">
+                <div class="label">Win Rate</div>
+                <div class="value" id="winRate">0%</div>
+            </div>
+            <div class="stat">
+                <div class="label">Profit</div>
+                <div class="value profit" id="profit">$0.00</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DERIV_APP_ID = 1089;
+        let ws = null;
+        let authToken = localStorage.getItem('deriv_token');
+        let currentSymbol = 'R_100';
+        let ticks = [];
+        let isSniperActive = false;
+        let isTrading = false;
+        let minConfidence = 85;
+        let signals = [];
+        let stats = { wins: 0, losses: 0, profit: 0 };
+        
+        function connectDeriv() {
+            ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
+            
+            ws.onopen = () => {
+                if (authToken) ws.send(JSON.stringify({ authorize: authToken }));
+                ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 }));
+            };
+            
+            ws.onmessage = (msg) => {
+                const data = JSON.parse(msg.data);
+                
+                if (data.authorize) {
+                    document.getElementById('balance').textContent = `$${parseFloat(data.authorize.balance).toFixed(2)}`;
+                    ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+                }
+                
+                if (data.balance) {
+                    document.getElementById('balance').textContent = `$${parseFloat(data.balance.balance).toFixed(2)}`;
+                }
+                
+                if (data.tick) handleTick(data.tick);
+                
+                if (data.proposal_open_contract && data.proposal_open_contract.is_sold) {
+                    handleContractResult(data.proposal_open_contract);
+                }
+                
+                if (data.error && data.error.code === 'InvalidToken') {
+                    localStorage.removeItem('deriv_token');
+                    window.location.href = 'index.html';
+                }
+            };
+            
+            ws.onclose = () => setTimeout(connectDeriv, 3000);
+        }
+        
+        function handleTick(tick) {
+            const price = parseFloat(tick.quote);
+            ticks.push(price);
+            if (ticks.length > 200) ticks.shift();
+            
+            if (ticks.length >= 50) {
+                analyzeMarket();
+            }
+        }
+        
+        function analyzeMarket() {
+            // Calculate indicators
+            const rsi = calculateRSI(ticks, 14);
+            const ema9 = calculateEMA(ticks, 9);
+            const ema21 = calculateEMA(ticks, 21);
+            const momentum = ticks[ticks.length - 1] - ticks[ticks.length - 10];
+            const volatility = calculateVolatility(ticks);
+            
+            // Trend analysis
+            const trendEl = document.getElementById('trendValue');
+            if (ema9 > ema21 * 1.001) {
+                trendEl.textContent = 'BULLISH';
+                trendEl.className = 'value bullish';
+            } else if (ema9 < ema21 * 0.999) {
+                trendEl.textContent = 'BEARISH';
+                trendEl.className = 'value bearish';
+            } else {
+                trendEl.textContent = 'NEUTRAL';
+                trendEl.className = 'value neutral';
+            }
+            
+            // Momentum
+            const momentumEl = document.getElementById('momentumValue');
+            if (momentum > 0) {
+                momentumEl.textContent = 'STRONG UP';
+                momentumEl.className = 'value bullish';
+            } else if (momentum < 0) {
+                momentumEl.textContent = 'STRONG DOWN';
+                momentumEl.className = 'value bearish';
+            } else {
+                momentumEl.textContent = 'FLAT';
+                momentumEl.className = 'value neutral';
+            }
+            
+            // Volatility
+            const volEl = document.getElementById('volatilityValue');
+            if (volatility > 0.002) {
+                volEl.textContent = 'HIGH';
+                volEl.className = 'value bearish';
+            } else if (volatility < 0.001) {
+                volEl.textContent = 'LOW';
+                volEl.className = 'value bullish';
+            } else {
+                volEl.textContent = 'NORMAL';
+                volEl.className = 'value neutral';
+            }
+            
+            // Pattern detection
+            const patternEl = document.getElementById('patternValue');
+            const pattern = detectPattern(ticks);
+            patternEl.textContent = pattern.name;
+            patternEl.className = `value ${pattern.type}`;
+            
+            // Calculate overall confidence
+            let confidence = 0;
+            let direction = null;
+            
+            // RSI signal
+            if (rsi < 25) {
+                confidence += 25;
+                direction = 'CALL';
+            } else if (rsi > 75) {
+                confidence += 25;
+                direction = 'PUT';
+            }
+            
+            // EMA signal
+            if (ema9 > ema21) {
+                confidence += direction === 'CALL' ? 20 : -10;
+                if (!direction) direction = 'CALL';
+            } else {
+                confidence += direction === 'PUT' ? 20 : -10;
+                if (!direction) direction = 'PUT';
+            }
+            
+            // Momentum signal
+            if (momentum > 0 && direction === 'CALL') confidence += 20;
+            if (momentum < 0 && direction === 'PUT') confidence += 20;
+            
+            // Volatility bonus
+            if (volatility < 0.0015) confidence += 15;
+            
+            // Pattern bonus
+            if (pattern.type !== 'neutral') confidence += 15;
+            
+            confidence = Math.max(0, Math.min(100, confidence));
+            
+            // Update UI
+            document.getElementById('confidenceValue').textContent = `${confidence}%`;
+            document.getElementById('confidenceFill').style.width = `${confidence}%`;
+            
+            const statusText = document.getElementById('statusText');
+            const statusSubtext = document.getElementById('statusSubtext');
+            
+            if (confidence >= minConfidence && direction) {
+                statusText.textContent = 'TARGET ACQUIRED';
+                statusText.className = 'status-text ready';
+                statusSubtext.textContent = `${direction} signal at ${confidence}% confidence`;
+                
+                // Add to signal queue
+                addSignal(direction, confidence);
+                
+                // Execute trade if sniper is active
+                if (isSniperActive && !isTrading) {
+                    executeTrade(direction);
+                }
+            } else {
+                statusText.textContent = 'HUNTING...';
+                statusText.className = 'status-text hunting';
+                statusSubtext.textContent = 'Waiting for high probability entry';
+            }
+        }
+        
+        function calculateRSI(prices, period) {
+            if (prices.length < period + 1) return 50;
+            
+            let gains = 0, losses = 0;
+            for (let i = prices.length - period; i < prices.length; i++) {
+                const diff = prices[i] - prices[i - 1];
+                if (diff > 0) gains += diff;
+                else losses -= diff;
+            }
+            
+            const avgGain = gains / period;
+            const avgLoss = losses / period;
+            
+            if (avgLoss === 0) return 100;
+            const rs = avgGain / avgLoss;
+            return 100 - (100 / (1 + rs));
+        }
+        
+        function calculateEMA(prices, period) {
+            if (prices.length < period) return prices[prices.length - 1];
+            
+            const multiplier = 2 / (period + 1);
+            let ema = prices.slice(0, period).reduce((a, b) => a + b) / period;
+            
+            for (let i = period; i < prices.length; i++) {
+                ema = (prices[i] - ema) * multiplier + ema;
+            }
+            
+            return ema;
+        }
+        
+        function calculateVolatility(prices) {
+            if (prices.length < 20) return 0;
+            
+            const recent = prices.slice(-20);
+            const mean = recent.reduce((a, b) => a + b) / recent.length;
+            const variance = recent.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / recent.length;
+            
+            return Math.sqrt(variance) / mean;
+        }
+        
+        function detectPattern(prices) {
+            if (prices.length < 10) return { name: 'ANALYZING', type: 'neutral' };
+            
+            const recent = prices.slice(-10);
+            const first5 = recent.slice(0, 5);
+            const last5 = recent.slice(5);
+            
+            const firstAvg = first5.reduce((a, b) => a + b) / 5;
+            const lastAvg = last5.reduce((a, b) => a + b) / 5;
+            
+            if (lastAvg > firstAvg * 1.002) {
+                return { name: 'RISING', type: 'bullish' };
+            } else if (lastAvg < firstAvg * 0.998) {
+                return { name: 'FALLING', type: 'bearish' };
+            } else {
+                return { name: 'RANGING', type: 'neutral' };
+            }
+        }
+        
+        function addSignal(direction, confidence) {
+            signals.unshift({ direction, confidence, time: new Date().toLocaleTimeString() });
+            if (signals.length > 5) signals.pop();
+            
+            const container = document.getElementById('signalQueue');
+            container.innerHTML = signals.map(s => `
+                <div class="signal-item">
+                    <div class="direction ${s.direction.toLowerCase()}">
+                        ${s.direction === 'CALL' ? '↑' : '↓'} ${s.direction}
+                        <span style="color: var(--text-secondary); font-size: 0.8rem;">${s.time}</span>
+                    </div>
+                    <span class="confidence high">${s.confidence}%</span>
+                </div>
+            `).join('');
+        }
+        
+        function toggleSniper() {
+            isSniperActive = !isSniperActive;
+            
+            const btn = document.getElementById('sniperBtn');
+            btn.classList.toggle('active', isSniperActive);
+            btn.innerHTML = isSniperActive ? '<span>SNIPER ACTIVE</span>' : '<span>START SNIPER</span>';
+        }
+        
+        function executeTrade(direction) {
+            if (!authToken || isTrading) return;
+            
+            isTrading = true;
+            const stake = parseFloat(document.getElementById('stake').value);
+            
+            ws.send(JSON.stringify({
+                buy: 1,
+                subscribe: 1,
+                price: stake,
+                parameters: {
+                    contract_type: direction,
+                    symbol: currentSymbol,
+                    duration: 5,
+                    duration_unit: 't',
+                    basis: 'stake',
+                    amount: stake,
+                    currency: 'USD'
+                }
+            }));
+        }
+        
+        function handleContractResult(contract) {
+            isTrading = false;
+            
+            const profit = parseFloat(contract.profit);
+            if (profit > 0) {
+                stats.wins++;
+                stats.profit += profit;
+            } else {
+                stats.losses++;
+                stats.profit += profit;
+            }
+            
+            updateStats();
+        }
+        
+        function updateStats() {
+            const total = stats.wins + stats.losses;
+            const winRate = total > 0 ? (stats.wins / total * 100).toFixed(1) : 0;
+            
+            document.getElementById('totalTrades').textContent = total;
+            document.getElementById('winRate').textContent = `${winRate}%`;
+            document.getElementById('profit').textContent = `$${stats.profit.toFixed(2)}`;
+            document.getElementById('profit').className = `value ${stats.profit >= 0 ? 'profit' : 'loss'}`;
+        }
+        
+        function updateMinConfidence() {
+            minConfidence = parseInt(document.getElementById('minConfidence').value);
+            document.getElementById('minConfDisplay').textContent = `${minConfidence}%`;
+            document.getElementById('thresholdDisplay').textContent = `${minConfidence}%`;
+        }
+        
+        function changeSymbol() {
+            currentSymbol = document.getElementById('symbolSelect').value;
+            ticks = [];
+            signals = [];
+            document.getElementById('signalQueue').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">No signals yet - analyzing market...</div>';
+            
+            ws.send(JSON.stringify({ forget_all: 'ticks' }));
+            setTimeout(() => ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 })), 500);
+        }
+        
+        // Initialize
+        if (!authToken) {
+            window.location.href = 'index.html';
+        } else {
+            connectDeriv();
+        }
+    </script>
+</body>
+</html>

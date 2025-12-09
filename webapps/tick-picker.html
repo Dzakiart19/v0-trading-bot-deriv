@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tick Picker - Deriv Trading Bot</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #21262d;
+            --border-color: #30363d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #39d353;
+            --accent-red: #f85149;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 16px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .back-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .balance-badge {
+            padding: 6px 12px;
+            background: var(--bg-card);
+            border-radius: 20px;
+            font-weight: 600;
+            color: var(--accent-green);
+        }
+        .tick-display {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .tick-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .tick-header select {
+            padding: 8px 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+        }
+        .current-price {
+            text-align: center;
+            padding: 20px;
+            background: var(--bg-card);
+            border-radius: 12px;
+            margin-bottom: 16px;
+        }
+        .current-price .price {
+            font-size: 2.5rem;
+            font-weight: 700;
+            font-family: 'Monaco', monospace;
+        }
+        .current-price .last-digit {
+            display: inline-block;
+            background: var(--accent-blue);
+            padding: 4px 12px;
+            border-radius: 8px;
+            margin-left: 8px;
+        }
+        .tick-history {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 10px 0;
+        }
+        .tick-item {
+            min-width: 40px;
+            height: 50px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-card);
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+        .tick-item .digit {
+            font-size: 1.2rem;
+            font-weight: 700;
+        }
+        .tick-item .direction {
+            font-size: 0.7rem;
+        }
+        .tick-item .direction.up { color: var(--accent-green); }
+        .tick-item .direction.down { color: var(--accent-red); }
+        .pattern-analysis {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .pattern-analysis h3 {
+            margin-bottom: 16px;
+            font-size: 1rem;
+        }
+        .pattern-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        .pattern-item {
+            background: var(--bg-card);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .pattern-item .label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+        .pattern-item .value {
+            font-size: 1.3rem;
+            font-weight: 700;
+        }
+        .pattern-item .value.rise { color: var(--accent-green); }
+        .pattern-item .value.fall { color: var(--accent-red); }
+        .signal-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+        .signal-box .signal {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .signal-box .signal.rise { color: var(--accent-green); }
+        .signal-box .signal.fall { color: var(--accent-red); }
+        .signal-box .signal.wait { color: var(--text-secondary); }
+        .signal-box .confidence {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+        .trade-controls {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+        }
+        .trade-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .trade-btn {
+            padding: 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .trade-btn.rise {
+            background: linear-gradient(135deg, #39d353, #238636);
+            color: white;
+        }
+        .trade-btn.fall {
+            background: linear-gradient(135deg, #f85149, #da3633);
+            color: white;
+        }
+        .trade-btn:hover {
+            transform: translateY(-2px);
+        }
+        .trade-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .stats-bar {
+            display: flex;
+            justify-content: space-around;
+            padding: 16px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            margin-top: 12px;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat .label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        .stat .value {
+            font-weight: 600;
+        }
+        .stat .value.profit { color: var(--accent-green); }
+        .stat .value.loss { color: var(--accent-red); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <button class="back-btn" onclick="window.location.href='index.html'">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <h1>Tick Picker</h1>
+        </div>
+        <div class="balance-badge" id="balance">$0.00</div>
+    </div>
+
+    <div class="tick-display">
+        <div class="tick-header">
+            <span style="color: var(--text-secondary);">Live Ticks</span>
+            <select id="symbolSelect" onchange="changeSymbol()">
+                <option value="R_100">Volatility 100</option>
+                <option value="R_75">Volatility 75</option>
+                <option value="R_50">Volatility 50</option>
+                <option value="R_25">Volatility 25</option>
+                <option value="R_10">Volatility 10</option>
+            </select>
+        </div>
+        <div class="current-price">
+            <span class="price" id="currentPrice">0.0000</span>
+            <span class="last-digit" id="lastDigit">0</span>
+        </div>
+        <div class="tick-history" id="tickHistory"></div>
+    </div>
+
+    <div class="pattern-analysis">
+        <h3>Pattern Analysis (Last 100 Ticks)</h3>
+        <div class="pattern-grid">
+            <div class="pattern-item">
+                <div class="label">Rise Count</div>
+                <div class="value rise" id="riseCount">0</div>
+            </div>
+            <div class="pattern-item">
+                <div class="label">Fall Count</div>
+                <div class="value fall" id="fallCount">0</div>
+            </div>
+            <div class="pattern-item">
+                <div class="label">Rise Streak</div>
+                <div class="value rise" id="riseStreak">0</div>
+            </div>
+            <div class="pattern-item">
+                <div class="label">Fall Streak</div>
+                <div class="value fall" id="fallStreak">0</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="signal-box">
+        <div class="signal wait" id="signal">ANALYZING...</div>
+        <div class="confidence" id="signalReason">Collecting data...</div>
+    </div>
+
+    <div class="trade-controls">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Stake ($)</label>
+                <input type="number" id="stake" value="1" min="0.35" step="0.1">
+            </div>
+            <div class="form-group">
+                <label>Ticks</label>
+                <select id="ticks">
+                    <option value="1">1 Tick</option>
+                    <option value="2">2 Ticks</option>
+                    <option value="3">3 Ticks</option>
+                    <option value="5" selected>5 Ticks</option>
+                </select>
+            </div>
+        </div>
+        <div class="trade-buttons">
+            <button class="trade-btn rise" id="riseBtn" onclick="placeTrade('CALL')">RISE ↑</button>
+            <button class="trade-btn fall" id="fallBtn" onclick="placeTrade('PUT')">FALL ↓</button>
+        </div>
+        <div class="stats-bar">
+            <div class="stat">
+                <div class="label">Trades</div>
+                <div class="value" id="totalTrades">0</div>
+            </div>
+            <div class="stat">
+                <div class="label">Win Rate</div>
+                <div class="value" id="winRate">0%</div>
+            </div>
+            <div class="stat">
+                <div class="label">Profit</div>
+                <div class="value profit" id="profit">$0.00</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DERIV_APP_ID = 1089;
+        let ws = null;
+        let authToken = localStorage.getItem('deriv_token');
+        let currentSymbol = 'R_100';
+        let ticks = [];
+        let isTrading = false;
+        let stats = { wins: 0, losses: 0, profit: 0 };
+        
+        function connectDeriv() {
+            ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
+            
+            ws.onopen = () => {
+                if (authToken) ws.send(JSON.stringify({ authorize: authToken }));
+                ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 }));
+            };
+            
+            ws.onmessage = (msg) => {
+                const data = JSON.parse(msg.data);
+                
+                if (data.authorize) {
+                    document.getElementById('balance').textContent = `$${parseFloat(data.authorize.balance).toFixed(2)}`;
+                    ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+                }
+                
+                if (data.balance) {
+                    document.getElementById('balance').textContent = `$${parseFloat(data.balance.balance).toFixed(2)}`;
+                }
+                
+                if (data.tick) handleTick(data.tick);
+                
+                if (data.proposal_open_contract && data.proposal_open_contract.is_sold) {
+                    handleContractResult(data.proposal_open_contract);
+                }
+                
+                if (data.error && data.error.code === 'InvalidToken') {
+                    localStorage.removeItem('deriv_token');
+                    window.location.href = 'index.html';
+                }
+            };
+            
+            ws.onclose = () => setTimeout(connectDeriv, 3000);
+        }
+        
+        function handleTick(tick) {
+            const price = parseFloat(tick.quote);
+            const priceStr = price.toFixed(4);
+            const lastDigit = parseInt(priceStr[priceStr.length - 1]);
+            
+            const prevPrice = ticks.length > 0 ? ticks[ticks.length - 1].price : price;
+            const direction = price >= prevPrice ? 'up' : 'down';
+            
+            ticks.push({ price, digit: lastDigit, direction });
+            if (ticks.length > 100) ticks.shift();
+            
+            // Update display
+            document.getElementById('currentPrice').textContent = priceStr;
+            document.getElementById('lastDigit').textContent = lastDigit;
+            
+            updateTickHistory();
+            analyzePattern();
+        }
+        
+        function updateTickHistory() {
+            const container = document.getElementById('tickHistory');
+            const recent = ticks.slice(-20);
+            
+            container.innerHTML = recent.map(t => `
+                <div class="tick-item">
+                    <span class="digit">${t.digit}</span>
+                    <span class="direction ${t.direction}">${t.direction === 'up' ? '↑' : '↓'}</span>
+                </div>
+            `).join('');
+            
+            container.scrollLeft = container.scrollWidth;
+        }
+        
+        function analyzePattern() {
+            if (ticks.length < 10) return;
+            
+            let rises = 0, falls = 0;
+            let currentRiseStreak = 0, currentFallStreak = 0;
+            let maxRiseStreak = 0, maxFallStreak = 0;
+            
+            for (let i = 1; i < ticks.length; i++) {
+                if (ticks[i].direction === 'up') {
+                    rises++;
+                    currentRiseStreak++;
+                    currentFallStreak = 0;
+                    maxRiseStreak = Math.max(maxRiseStreak, currentRiseStreak);
+                } else {
+                    falls++;
+                    currentFallStreak++;
+                    currentRiseStreak = 0;
+                    maxFallStreak = Math.max(maxFallStreak, currentFallStreak);
+                }
+            }
+            
+            document.getElementById('riseCount').textContent = rises;
+            document.getElementById('fallCount').textContent = falls;
+            document.getElementById('riseStreak').textContent = currentRiseStreak;
+            document.getElementById('fallStreak').textContent = currentFallStreak;
+            
+            // Determine signal
+            const signalEl = document.getElementById('signal');
+            const reasonEl = document.getElementById('signalReason');
+            
+            // Mean reversion logic
+            if (currentFallStreak >= 4) {
+                signalEl.textContent = 'RISE ↑';
+                signalEl.className = 'signal rise';
+                reasonEl.textContent = `${currentFallStreak} consecutive falls - reversal expected`;
+            } else if (currentRiseStreak >= 4) {
+                signalEl.textContent = 'FALL ↓';
+                signalEl.className = 'signal fall';
+                reasonEl.textContent = `${currentRiseStreak} consecutive rises - reversal expected`;
+            } else if (rises > falls * 1.3) {
+                signalEl.textContent = 'RISE ↑';
+                signalEl.className = 'signal rise';
+                reasonEl.textContent = `Strong uptrend: ${rises} rises vs ${falls} falls`;
+            } else if (falls > rises * 1.3) {
+                signalEl.textContent = 'FALL ↓';
+                signalEl.className = 'signal fall';
+                reasonEl.textContent = `Strong downtrend: ${falls} falls vs ${rises} rises`;
+            } else {
+                signalEl.textContent = 'WAIT';
+                signalEl.className = 'signal wait';
+                reasonEl.textContent = 'No clear pattern detected';
+            }
+        }
+        
+        function changeSymbol() {
+            currentSymbol = document.getElementById('symbolSelect').value;
+            ticks = [];
+            ws.send(JSON.stringify({ forget_all: 'ticks' }));
+            setTimeout(() => ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 })), 500);
+        }
+        
+        function placeTrade(direction) {
+            if (!authToken || isTrading) return;
+            
+            isTrading = true;
+            const stake = parseFloat(document.getElementById('stake').value);
+            const duration = parseInt(document.getElementById('ticks').value);
+            
+            document.getElementById('riseBtn').disabled = true;
+            document.getElementById('fallBtn').disabled = true;
+            
+            ws.send(JSON.stringify({
+                buy: 1,
+                subscribe: 1,
+                price: stake,
+                parameters: {
+                    contract_type: direction,
+                    symbol: currentSymbol,
+                    duration: duration,
+                    duration_unit: 't',
+                    basis: 'stake',
+                    amount: stake,
+                    currency: 'USD'
+                }
+            }));
+        }
+        
+        function handleContractResult(contract) {
+            isTrading = false;
+            document.getElementById('riseBtn').disabled = false;
+            document.getElementById('fallBtn').disabled = false;
+            
+            const profit = parseFloat(contract.profit);
+            if (profit > 0) {
+                stats.wins++;
+                stats.profit += profit;
+            } else {
+                stats.losses++;
+                stats.profit += profit;
+            }
+            
+            updateStats();
+        }
+        
+        function updateStats() {
+            const total = stats.wins + stats.losses;
+            const winRate = total > 0 ? (stats.wins / total * 100).toFixed(1) : 0;
+            
+            document.getElementById('totalTrades').textContent = total;
+            document.getElementById('winRate').textContent = `${winRate}%`;
+            document.getElementById('profit').textContent = `$${stats.profit.toFixed(2)}`;
+            document.getElementById('profit').className = `value ${stats.profit >= 0 ? 'profit' : 'loss'}`;
+        }
+        
+        // Initialize
+        if (!authToken) {
+            window.location.href = 'index.html';
+        } else {
+            connectDeriv();
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DigitPad - Deriv Trading Bot</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #21262d;
+            --border-color: #30363d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #39d353;
+            --accent-red: #f85149;
+            --accent-purple: #a371f7;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 16px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .back-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .balance-badge {
+            padding: 6px 12px;
+            background: var(--bg-card);
+            border-radius: 20px;
+            font-weight: 600;
+            color: var(--accent-green);
+        }
+        .symbol-select {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .symbol-select select {
+            padding: 8px 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+        }
+        .current-display {
+            text-align: center;
+            padding: 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            margin-bottom: 16px;
+        }
+        .current-display .price {
+            font-size: 2rem;
+            font-weight: 700;
+            font-family: 'Monaco', monospace;
+        }
+        .current-display .highlight {
+            color: var(--accent-purple);
+            background: rgba(163, 113, 247, 0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .digit-heatmap {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .digit-heatmap h3 {
+            margin-bottom: 16px;
+            font-size: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .heatmap-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+        }
+        .digit-cell {
+            aspect-ratio: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        .digit-cell:hover {
+            transform: scale(1.05);
+        }
+        .digit-cell.selected {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 20px rgba(88, 166, 255, 0.3);
+        }
+        .digit-cell .digit {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        .digit-cell .count {
+            font-size: 0.75rem;
+            opacity: 0.8;
+        }
+        .digit-cell .percent {
+            font-size: 0.7rem;
+            opacity: 0.7;
+        }
+        .prediction-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+        .prediction-box h3 {
+            margin-bottom: 12px;
+            font-size: 1rem;
+        }
+        .hot-cold-display {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .hot-digits, .cold-digits {
+            padding: 12px;
+            border-radius: 8px;
+        }
+        .hot-digits {
+            background: rgba(248, 81, 73, 0.1);
+            border: 1px solid var(--accent-red);
+        }
+        .cold-digits {
+            background: rgba(88, 166, 255, 0.1);
+            border: 1px solid var(--accent-blue);
+        }
+        .digits-list {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .digits-list span {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-weight: 700;
+        }
+        .hot-digits .digits-list span {
+            background: var(--accent-red);
+        }
+        .cold-digits .digits-list span {
+            background: var(--accent-blue);
+        }
+        .trade-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .trade-type-tabs {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .trade-type-tab {
+            padding: 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            text-align: center;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        .trade-type-tab.active {
+            background: var(--accent-purple);
+            color: white;
+            border-color: var(--accent-purple);
+        }
+        .selected-digit-display {
+            text-align: center;
+            padding: 16px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+        .selected-digit-display .label {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+        }
+        .selected-digit-display .digit {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--accent-purple);
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+        }
+        .trade-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #a371f7, #8957e5);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .trade-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(163, 113, 247, 0.3);
+        }
+        .trade-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .stats-bar {
+            display: flex;
+            justify-content: space-around;
+            padding: 12px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat .label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        .stat .value {
+            font-weight: 600;
+        }
+        .stat .value.profit { color: var(--accent-green); }
+        .stat .value.loss { color: var(--accent-red); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <button class="back-btn" onclick="window.location.href='index.html'">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <h1>DigitPad</h1>
+        </div>
+        <div class="balance-badge" id="balance">$0.00</div>
+    </div>
+
+    <div class="symbol-select">
+        <span>Symbol</span>
+        <select id="symbolSelect" onchange="changeSymbol()">
+            <option value="R_100">Volatility 100</option>
+            <option value="R_75">Volatility 75</option>
+            <option value="R_50">Volatility 50</option>
+            <option value="R_25">Volatility 25</option>
+            <option value="R_10">Volatility 10</option>
+        </select>
+    </div>
+
+    <div class="current-display">
+        <span class="price" id="currentPrice">0.000<span class="highlight">0</span></span>
+    </div>
+
+    <div class="digit-heatmap">
+        <h3>
+            <span>Digit Frequency Heatmap</span>
+            <span style="font-size: 0.8rem; color: var(--text-secondary);" id="tickCount">0 ticks</span>
+        </h3>
+        <div class="heatmap-grid" id="heatmapGrid"></div>
+    </div>
+
+    <div class="prediction-box">
+        <h3>Hot & Cold Digits</h3>
+        <div class="hot-cold-display">
+            <div class="hot-digits">
+                <div style="font-size: 0.85rem; color: var(--accent-red);">HOT (Frequent)</div>
+                <div class="digits-list" id="hotDigits"></div>
+            </div>
+            <div class="cold-digits">
+                <div style="font-size: 0.85rem; color: var(--accent-blue);">COLD (Rare)</div>
+                <div class="digits-list" id="coldDigits"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="trade-section">
+        <div class="trade-type-tabs">
+            <div class="trade-type-tab active" data-type="DIGITMATCH" onclick="setTradeType('DIGITMATCH')">Match</div>
+            <div class="trade-type-tab" data-type="DIGITDIFF" onclick="setTradeType('DIGITDIFF')">Differs</div>
+            <div class="trade-type-tab" data-type="DIGITOVER" onclick="setTradeType('DIGITOVER')">Over</div>
+            <div class="trade-type-tab" data-type="DIGITUNDER" onclick="setTradeType('DIGITUNDER')">Under</div>
+        </div>
+        
+        <div class="selected-digit-display">
+            <div class="label">Selected Digit</div>
+            <div class="digit" id="selectedDigit">-</div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>Stake ($)</label>
+                <input type="number" id="stake" value="1" min="0.35" step="0.1">
+            </div>
+            <div class="form-group">
+                <label>Ticks</label>
+                <select id="ticks">
+                    <option value="1">1 Tick</option>
+                    <option value="3">3 Ticks</option>
+                    <option value="5" selected>5 Ticks</option>
+                </select>
+            </div>
+        </div>
+        
+        <button class="trade-btn" id="tradeBtn" onclick="placeTrade()">Place Trade</button>
+        
+        <div class="stats-bar">
+            <div class="stat">
+                <div class="label">Trades</div>
+                <div class="value" id="totalTrades">0</div>
+            </div>
+            <div class="stat">
+                <div class="label">Win Rate</div>
+                <div class="value" id="winRate">0%</div>
+            </div>
+            <div class="stat">
+                <div class="label">Profit</div>
+                <div class="value profit" id="profit">$0.00</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DERIV_APP_ID = 1089;
+        let ws = null;
+        let authToken = localStorage.getItem('deriv_token');
+        let currentSymbol = 'R_100';
+        let digitCounts = [0,0,0,0,0,0,0,0,0,0];
+        let totalTicks = 0;
+        let selectedDigit = null;
+        let tradeType = 'DIGITMATCH';
+        let isTrading = false;
+        let stats = { wins: 0, losses: 0, profit: 0 };
+        
+        function initHeatmap() {
+            const grid = document.getElementById('heatmapGrid');
+            grid.innerHTML = '';
+            
+            for (let i = 0; i < 10; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'digit-cell';
+                cell.innerHTML = `
+                    <span class="digit">${i}</span>
+                    <span class="count">0</span>
+                    <span class="percent">0%</span>
+                `;
+                cell.onclick = () => selectDigit(i);
+                cell.id = `digit-${i}`;
+                grid.appendChild(cell);
+            }
+        }
+        
+        function connectDeriv() {
+            ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
+            
+            ws.onopen = () => {
+                if (authToken) ws.send(JSON.stringify({ authorize: authToken }));
+                ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 }));
+            };
+            
+            ws.onmessage = (msg) => {
+                const data = JSON.parse(msg.data);
+                
+                if (data.authorize) {
+                    document.getElementById('balance').textContent = `$${parseFloat(data.authorize.balance).toFixed(2)}`;
+                    ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+                }
+                
+                if (data.balance) {
+                    document.getElementById('balance').textContent = `$${parseFloat(data.balance.balance).toFixed(2)}`;
+                }
+                
+                if (data.tick) handleTick(data.tick);
+                
+                if (data.proposal_open_contract && data.proposal_open_contract.is_sold) {
+                    handleContractResult(data.proposal_open_contract);
+                }
+                
+                if (data.error && data.error.code === 'InvalidToken') {
+                    localStorage.removeItem('deriv_token');
+                    window.location.href = 'index.html';
+                }
+            };
+            
+            ws.onclose = () => setTimeout(connectDeriv, 3000);
+        }
+        
+        function handleTick(tick) {
+            const price = parseFloat(tick.quote);
+            const priceStr = price.toFixed(4);
+            const lastDigit = parseInt(priceStr[priceStr.length - 1]);
+            
+            // Update display
+            const priceEl = document.getElementById('currentPrice');
+            priceEl.innerHTML = priceStr.slice(0, -1) + `<span class="highlight">${lastDigit}</span>`;
+            
+            // Update counts
+            digitCounts[lastDigit]++;
+            totalTicks++;
+            
+            updateHeatmap();
+            updateHotCold();
+            
+            document.getElementById('tickCount').textContent = `${totalTicks} ticks`;
+        }
+        
+        function updateHeatmap() {
+            const maxCount = Math.max(...digitCounts);
+            
+            for (let i = 0; i < 10; i++) {
+                const cell = document.getElementById(`digit-${i}`);
+                const count = digitCounts[i];
+                const percent = totalTicks > 0 ? (count / totalTicks * 100).toFixed(1) : 0;
+                
+                // Calculate color intensity
+                const intensity = maxCount > 0 ? count / maxCount : 0;
+                const hue = 280 - intensity * 40; // Purple to pink gradient
+                const saturation = 50 + intensity * 30;
+                const lightness = 20 + intensity * 15;
+                
+                cell.style.background = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+                cell.querySelector('.count').textContent = count;
+                cell.querySelector('.percent').textContent = `${percent}%`;
+            }
+        }
+        
+        function updateHotCold() {
+            const sorted = digitCounts.map((count, digit) => ({ digit, count }))
+                .sort((a, b) => b.count - a.count);
+            
+            const hot = sorted.slice(0, 3);
+            const cold = sorted.slice(-3).reverse();
+            
+            document.getElementById('hotDigits').innerHTML = hot.map(d => `<span>${d.digit}</span>`).join('');
+            document.getElementById('coldDigits').innerHTML = cold.map(d => `<span>${d.digit}</span>`).join('');
+        }
+        
+        function selectDigit(digit) {
+            selectedDigit = digit;
+            
+            // Update visual selection
+            document.querySelectorAll('.digit-cell').forEach(cell => cell.classList.remove('selected'));
+            document.getElementById(`digit-${digit}`).classList.add('selected');
+            document.getElementById('selectedDigit').textContent = digit;
+        }
+        
+        function setTradeType(type) {
+            tradeType = type;
+            document.querySelectorAll('.trade-type-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.type === type);
+            });
+        }
+        
+        function changeSymbol() {
+            currentSymbol = document.getElementById('symbolSelect').value;
+            digitCounts = [0,0,0,0,0,0,0,0,0,0];
+            totalTicks = 0;
+            updateHeatmap();
+            
+            ws.send(JSON.stringify({ forget_all: 'ticks' }));
+            setTimeout(() => ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 })), 500);
+        }
+        
+        function placeTrade() {
+            if (!authToken || isTrading || selectedDigit === null) return;
+            
+            isTrading = true;
+            document.getElementById('tradeBtn').disabled = true;
+            
+            const stake = parseFloat(document.getElementById('stake').value);
+            const duration = parseInt(document.getElementById('ticks').value);
+            
+            ws.send(JSON.stringify({
+                buy: 1,
+                subscribe: 1,
+                price: stake,
+                parameters: {
+                    contract_type: tradeType,
+                    symbol: currentSymbol,
+                    duration: duration,
+                    duration_unit: 't',
+                    basis: 'stake',
+                    amount: stake,
+                    currency: 'USD',
+                    barrier: selectedDigit.toString()
+                }
+            }));
+        }
+        
+        function handleContractResult(contract) {
+            isTrading = false;
+            document.getElementById('tradeBtn').disabled = false;
+            
+            const profit = parseFloat(contract.profit);
+            if (profit > 0) {
+                stats.wins++;
+                stats.profit += profit;
+            } else {
+                stats.losses++;
+                stats.profit += profit;
+            }
+            
+            updateStats();
+        }
+        
+        function updateStats() {
+            const total = stats.wins + stats.losses;
+            const winRate = total > 0 ? (stats.wins / total * 100).toFixed(1) : 0;
+            
+            document.getElementById('totalTrades').textContent = total;
+            document.getElementById('winRate').textContent = `${winRate}%`;
+            document.getElementById('profit').textContent = `$${stats.profit.toFixed(2)}`;
+            document.getElementById('profit').className = `value ${stats.profit >= 0 ? 'profit' : 'loss'}`;
+        }
+        
+        // Initialize
+        initHeatmap();
+        if (!authToken) {
+            window.location.href = 'index.html';
+        } else {
+            connectDeriv();
+        }
+    </script>
+</body>
+</html>
