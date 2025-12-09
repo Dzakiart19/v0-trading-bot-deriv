@@ -63,9 +63,9 @@ class DerivWebSocket:
         self._max_reconnect_attempts = 5
         self._reconnect_delay = 5
         
-        # Health check
+        # Health check - ping every 30 seconds per Deriv API best practices
         self._last_ping = 0
-        self._ping_interval = 60
+        self._ping_interval = 30  # Changed from 60 to 30 seconds
         self._health_thread: Optional[threading.Thread] = None
         self._running = False
         
@@ -140,7 +140,7 @@ class DerivWebSocket:
             return False
     
     def _run_forever(self):
-        """Run WebSocket in thread"""
+        """Run WebSocket in thread with auto-reconnect and re-authorize"""
         while self._running:
             try:
                 if self.ws is None:
@@ -155,22 +155,46 @@ class DerivWebSocket:
             if self._running and self._reconnect_attempts < self._max_reconnect_attempts:
                 self._reconnect_attempts += 1
                 delay = self._reconnect_delay * (2 ** (self._reconnect_attempts - 1))
-                delay = min(delay, 60)
+                delay = min(delay, 30)  # Max 30 seconds delay
                 logger.info(f"Reconnecting in {delay}s (attempt {self._reconnect_attempts})")
                 time.sleep(delay)
+                
+                # Re-create WebSocket and reconnect
+                try:
+                    url = self.WS_URL.format(app_id=self.app_id)
+                    self._connection_ready.clear()
+                    self.ws = websocket.WebSocketApp(
+                        url,
+                        on_open=self._on_open,
+                        on_message=self._on_message,
+                        on_error=self._on_error,
+                        on_close=self._on_close
+                    )
+                    logger.info("WebSocket recreated for reconnection")
+                except Exception as e:
+                    logger.error(f"Failed to recreate WebSocket: {e}")
             else:
                 break
     
     def _on_open(self, ws):
-        """Handle connection opened - signal readiness"""
+        """Handle connection opened - signal readiness and re-authorize if needed"""
         logger.info("WebSocket connected")
         self.connected = True
         self._reconnect_attempts = 0
         self._connection_error = None
-        self._connection_ready.set()  # Signal that connection is ready
+        self._connection_ready.set()
+        
+        # Re-authorize if we have a token (for reconnect scenarios)
+        if self.token and not self.authorized:
+            logger.info("Re-authorizing after reconnect...")
+            try:
+                self._send({"authorize": self.token})
+            except Exception as e:
+                logger.error(f"Re-authorization send failed: {e}")
         
         if self.on_connection_status:
             self.on_connection_status(True)
+    
     
     def _on_message(self, ws, message):
         """Handle incoming messages"""
@@ -388,8 +412,14 @@ class DerivWebSocket:
             logger.error(f"Send error: {e}")
             return -1
     
-    def _send_and_wait(self, data: dict, timeout: float = 30, retries: int = 0) -> Optional[dict]:
-        """Send message and wait for response with retry support and metric tracking"""
+    def _send_and_wait(self, data: dict, timeout: float = 10, retries: int = 0) -> Optional[dict]:
+        """Send message and wait for response with retry support and metric tracking
+        
+        Args:
+            data: Message data to send
+            timeout: Timeout per attempt (default 10s per Deriv best practices)
+            retries: Number of retry attempts (0 = no retries)
+        """
         if not self.connected or not self.ws:
             logger.error("Cannot send - not connected")
             return None
@@ -398,6 +428,11 @@ class DerivWebSocket:
         last_error = None
         
         for attempt in range(max_attempts):
+            # Check connection before each attempt
+            if not self.connected or not self.ws:
+                logger.error("Connection lost during request")
+                return None
+            
             req_id = self._get_request_id()
             data_copy = data.copy()
             data_copy["req_id"] = req_id
@@ -427,9 +462,18 @@ class DerivWebSocket:
                     self._timeout_count += 1
                     self._consecutive_timeouts += 1
                     
+                    # Check if we need to trigger reconnect after multiple consecutive timeouts
+                    if self._consecutive_timeouts >= 5:
+                        logger.warning("Multiple consecutive timeouts - connection may be degraded")
+                        self._trigger_reconnect()
+                    
                     if attempt < max_attempts - 1:
-                        delay = min(2 ** attempt, 4)
-                        logger.info(f"Retrying in {delay}s...")
+                        # Exponential backoff with jitter
+                        import random
+                        base_delay = min(2 ** attempt, 4)
+                        jitter = random.uniform(0.1, 0.5)
+                        delay = base_delay + jitter
+                        logger.info(f"Retrying in {delay:.1f}s...")
                         time.sleep(delay)
                     
             except Exception as e:
@@ -439,7 +483,8 @@ class DerivWebSocket:
                 self._consecutive_timeouts += 1
                 
                 if attempt < max_attempts - 1:
-                    delay = min(2 ** attempt, 4)
+                    import random
+                    delay = min(2 ** attempt, 4) + random.uniform(0.1, 0.5)
                     time.sleep(delay)
             finally:
                 self._response_events.pop(req_id, None)
@@ -448,6 +493,21 @@ class DerivWebSocket:
         if last_error:
             logger.error(f"All {max_attempts} attempts failed: {last_error}")
         return None
+    
+    def _trigger_reconnect(self):
+        """Trigger reconnection when connection is degraded"""
+        logger.warning("Triggering reconnection due to degraded connection...")
+        self._consecutive_timeouts = 0
+        
+        # Close current connection
+        if self.ws:
+            try:
+                self.ws.close()
+            except:
+                pass
+        
+        self.connected = False
+        self.authorized = False
     
     def authorize(self, token: str, timeout: float = 30) -> tuple:
         """

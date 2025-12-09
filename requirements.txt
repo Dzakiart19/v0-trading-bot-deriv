@@ -19,3 +19,8 @@ python-dotenv>=1.0.0
 # Security
 cryptography>=41.0.0
 pydantic>=2.0.0
+numpy
+python-dotenv
+telegram
+websocket
+websocket-client

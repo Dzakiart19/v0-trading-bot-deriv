@@ -121,14 +121,16 @@ class TradingManager:
         # Last progress milestone for rate limiting
         self._last_progress_milestone = -1
         
-        # Timeout and watchdog tracking
+        # Timeout and watchdog tracking - optimized for faster recovery
         self._consecutive_timeouts = 0
-        self._max_consecutive_timeouts = 3
+        self._max_consecutive_timeouts = 5  # Increased from 3 to allow more retries
         self._last_trade_attempt = 0
         self._last_activity_time = 0
-        self._watchdog_interval = 60
-        self._stuck_threshold = 300
+        self._watchdog_interval = 20  # Check every 20 seconds (was 60)
+        self._stuck_threshold = 120  # Restart after 2 minutes stuck (was 5 minutes)
         self._trading_paused_due_to_timeout = False
+        self._recovery_attempts = 0
+        self._max_recovery_attempts = 3
         
         # If config provided, configure immediately
         if config:
@@ -273,7 +275,7 @@ class TradingManager:
         return True
     
     def _start_watchdog(self):
-        """Start watchdog thread to detect stuck state"""
+        """Start watchdog thread to detect stuck state with progressive recovery"""
         if self._watchdog_thread and self._watchdog_thread.is_alive():
             return
         
@@ -288,30 +290,49 @@ class TradingManager:
                     current_time = time.time()
                     inactive_time = current_time - self._last_activity_time
                     
-                    if inactive_time > self._stuck_threshold:
+                    # Progressive recovery based on inactive time
+                    if inactive_time > 60 and inactive_time <= self._stuck_threshold:
+                        # After 1 minute: check connection health
+                        logger.info(f"Watchdog: Checking connection health after {inactive_time:.0f}s inactivity")
+                        if self._check_and_resume_trading():
+                            logger.info("Watchdog: Connection healthy, continuing...")
+                            self._last_activity_time = time.time()
+                    
+                    elif inactive_time > self._stuck_threshold:
                         logger.warning(f"Watchdog: No trade activity for {inactive_time:.0f}s, restarting session...")
                         
                         if self.on_progress:
                             self.on_progress({
                                 "type": "watchdog_restart",
-                                "message": f"⚠️ Bot stuck selama {int(inactive_time/60)} menit, melakukan restart..."
+                                "message": f"⚠️ Bot tidak aktif {int(inactive_time)}s, melakukan restart..."
                             })
                         
-                        self._restart_trading_session()
+                        self._recovery_attempts += 1
+                        
+                        if self._recovery_attempts > self._max_recovery_attempts:
+                            logger.error("Max recovery attempts reached, stopping trading")
+                            if self.on_error:
+                                self.on_error("Koneksi tidak stabil setelah beberapa percobaan. Silakan cek koneksi internet.")
+                            self.stop()
+                        else:
+                            self._restart_trading_session()
                         
                 except Exception as e:
                     logger.error(f"Watchdog error: {e}")
         
         self._watchdog_thread = threading.Thread(target=watchdog_loop, daemon=True)
         self._watchdog_thread.start()
-        logger.info("Watchdog timer started")
+        logger.info("Watchdog timer started (interval: 20s, threshold: 120s)")
     
     def _restart_trading_session(self):
-        """Restart trading session after stuck detection"""
+        """Restart trading session after stuck detection with connection recovery"""
         try:
             if not self.config:
                 return
             
+            logger.info(f"Restarting trading session (attempt {self._recovery_attempts})")
+            
+            # Reset state
             self._last_activity_time = time.time()
             self._consecutive_timeouts = 0
             self._trading_paused_due_to_timeout = False
@@ -322,12 +343,37 @@ class TradingManager:
                 self.ws._consecutive_timeouts = 0
             
             if self.ws and self.config:
+                # Step 1: Check connection health
+                if hasattr(self.ws, 'check_connection_health'):
+                    if not self.ws.check_connection_health():
+                        logger.warning("Connection unhealthy, attempting reconnect...")
+                        # Manual reconnect
+                        self.ws.disconnect()
+                        time.sleep(2)
+                        if self.ws.connect():
+                            # Re-authorize if we have token
+                            if hasattr(self.ws, 'token') and self.ws.token:
+                                self.ws.authorize(self.ws.token)
+                
+                # Step 2: Re-subscribe to ticks
                 try:
                     self.ws.unsubscribe_ticks(self.config.symbol)
                 except Exception:
                     pass
+                
                 time.sleep(1)
+                
+                # Step 3: Preload data and subscribe
+                if hasattr(self.ws, 'preload_data'):
+                    self.ws.preload_data(self.config.symbol, count=100)
+                
                 self.ws.subscribe_ticks(self.config.symbol, self._on_tick)
+                
+                if self.on_progress:
+                    self.on_progress({
+                        "type": "session_restarted",
+                        "message": "✅ Sesi trading di-restart, melanjutkan trading..."
+                    })
             
             logger.info("Trading session restarted by watchdog")
             
@@ -649,23 +695,46 @@ class TradingManager:
             self._handle_trade_failure(signal, str(e))
     
     def _handle_trade_failure(self, signal, error_msg: Optional[str] = None):
-        """Handle trade execution failure with timeout tracking"""
+        """Handle trade execution failure with smart recovery"""
         self._consecutive_timeouts += 1
         
-        logger.warning(f"Trade failed (consecutive failures: {self._consecutive_timeouts})")
+        logger.warning(f"Trade failed (consecutive failures: {self._consecutive_timeouts}/{self._max_consecutive_timeouts})")
         
         if self._consecutive_timeouts >= self._max_consecutive_timeouts:
+            logger.warning(f"Multiple failures detected, attempting connection recovery...")
+            
+            # Try to recover connection first before pausing
+            if self._check_and_resume_trading():
+                logger.info("Connection recovered after failures")
+                self._consecutive_timeouts = 0
+                return
+            
+            # If recovery failed, pause trading
             self._trading_paused_due_to_timeout = True
             logger.error(f"Trading paused after {self._consecutive_timeouts} consecutive failures")
             
             if self.on_progress:
                 self.on_progress({
                     "type": "trading_paused",
-                    "message": f"⚠️ Trading dijeda setelah {self._consecutive_timeouts}x timeout berturut-turut. Menunggu koneksi stabil..."
+                    "message": f"⚠️ Trading dijeda: {self._consecutive_timeouts}x gagal. Mencoba pemulihan otomatis..."
                 })
             
+            # Attempt automatic recovery in background
+            import threading
+            def recovery_task():
+                time.sleep(5)  # Wait 5 seconds before retry
+                if self._check_and_resume_trading():
+                    logger.info("Automatic recovery successful")
+                    if self.on_progress:
+                        self.on_progress({
+                            "type": "trading_resumed",
+                            "message": "✅ Koneksi pulih, trading dilanjutkan!"
+                        })
+            
+            threading.Thread(target=recovery_task, daemon=True).start()
+            
             if self.on_error:
-                self.on_error(f"Trading paused: {self._consecutive_timeouts} consecutive failures")
+                self.on_error(f"Trading paused: {self._consecutive_timeouts} consecutive failures - attempting recovery")
         
         elif error_msg and self.on_error:
             self.on_error(error_msg)
@@ -764,7 +833,11 @@ class TradingManager:
             self.analytics.record_trade(trade_entry)
             
             # Update money manager
-            self.money_manager.record_trade(profit > 0)
+            self.money_manager.record_trade(
+                stake=self.active_trade.get("stake", 0),
+                profit=profit,
+                is_win=profit > 0
+            )
             
             logger.info(
                 f"Trade closed | Result: {'WIN' if profit > 0 else 'LOSS'} | "
