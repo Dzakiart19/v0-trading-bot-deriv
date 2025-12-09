@@ -624,6 +624,20 @@ def register_deriv_connection(telegram_id: int, ws_connection):
     """Register a Deriv WebSocket connection for a user"""
     deriv_connections[telegram_id] = ws_connection
     logger.info(f"Registered Deriv connection for telegram_id: {telegram_id}")
+    
+    # Sync account info to session_manager for WebApp auto-connect
+    try:
+        if hasattr(ws_connection, 'is_connected') and ws_connection.is_connected():
+            account_data = {
+                "balance": ws_connection.get_balance() if hasattr(ws_connection, 'get_balance') else 0,
+                "currency": ws_connection.get_currency() if hasattr(ws_connection, 'get_currency') else "USD",
+                "loginid": ws_connection.loginid if hasattr(ws_connection, 'loginid') else "",
+                "account_type": ws_connection.account_type if hasattr(ws_connection, 'account_type') else "demo"
+            }
+            session_manager.set_deriv_account(telegram_id, account_data)
+            logger.info(f"Synced account info to session_manager for telegram_id: {telegram_id}")
+    except Exception as e:
+        logger.error(f"Failed to sync account info for telegram_id {telegram_id}: {e}")
 
 def unregister_deriv_connection(telegram_id: int):
     """Unregister a Deriv WebSocket connection for a user"""
