@@ -176,6 +176,7 @@ def validate_duration_for_symbol(symbol: str, duration: int, unit: str) -> Optio
     if not config:
         return None
     
+    # Check if the requested unit is supported by the symbol
     if unit == 't' and not config.supports_ticks:
         return None
     if unit == 'm' and not config.supports_minutes:
@@ -183,11 +184,12 @@ def validate_duration_for_symbol(symbol: str, duration: int, unit: str) -> Optio
     if unit == 'd' and not config.supports_days:
         return None
     
+    # If the unit matches the one with defined min/max, check the duration range
     if unit == config.duration_unit:
-        if config.min_duration <= duration <= config.max_duration:
-            return (duration, unit)
-        return (config.min_duration, config.duration_unit)
+        if not (config.min_duration <= duration <= config.max_duration):
+            return None  # Duration is out of the valid range
     
+    # If the unit is supported and the duration is valid (or no range is defined for it), return the tuple
     return (duration, unit)
 
 def get_symbol_list_text() -> str:

@@ -1032,26 +1032,41 @@
         
         // Check if user should be redirected to a different strategy page
         async function checkStrategyRedirect() {
-            const tg = window.Telegram?.WebApp;
-            const tgUser = tg?.initDataUnsafe?.user;
+            console.log("--- checkStrategyRedirect called ---");
             
-            if (tgUser?.id) {
-                try {
-                    const resp = await fetch(`/api/telegram/get-strategy?telegram_id=${tgUser.id}`);
-                    const data = await resp.json();
-                    
-                    if (data.strategy && data.route) {
-                        const currentPath = window.location.pathname;
-                        if (!currentPath.includes(data.route.replace('/', ''))) {
-                            window.location.href = data.route;
-                            return true;
-                        }
-                    }
-                } catch (e) {
-                    console.error('Failed to check strategy:', e);
-                }
+            // Wait for Telegram WebApp to be ready
+            if (!window.Telegram || !window.Telegram.WebApp) {
+                console.log("Waiting for Telegram.WebApp to be initialized...");
+                await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms and retry
+                return checkStrategyRedirect();
             }
-            return false;
+
+            const tgUser = window.Telegram.WebApp.initDataUnsafe?.user;
+            if (!tgUser?.id) {
+                console.log("Redirect check failed: No tgUser.id found.");
+                return false;
+            }
+            console.log(`Redirect check: Found user ID ${tgUser.id}`);
+
+            try {
+                const response = await fetch(`/api/telegram/get-strategy?telegram_id=${tgUser.id}`);
+                const data = await response.json();
+                console.log("Redirect check: API response:", data);
+
+                if (data.strategy && data.route) {
+                    console.log(`Redirect check: Current path is '${window.location.pathname}', required route is '${data.route}'`);
+                    if (window.location.pathname !== data.route) {
+                        console.log("Redirect check: Mismatch found. REDIRECTING NOW to " + data.route);
+                        window.location.href = data.route;
+                        return true; // Indicates a redirect is happening.
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to fetch strategy for redirect:', error);
+            }
+
+            console.log("--- checkStrategyRedirect finished: No redirect needed. ---");
+            return false; // No redirect needed.
         }
         
         // Initialize with Telegram token check (secured with initData)

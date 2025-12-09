@@ -463,6 +463,7 @@ async def get_user_strategy(token: str = Query(...)):
 async def telegram_set_strategy(telegram_id: int = Query(...), strategy: str = Query(...)):
     """Set strategy from Telegram bot - no session required"""
     session_manager.set_strategy(telegram_id, strategy)
+    logger.info(f"Strategy for user {telegram_id} has been successfully set to {strategy}.")
     
     strategy_routes = {
         "TERMINAL": "/terminal",
