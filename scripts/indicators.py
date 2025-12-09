@@ -1,0 +1,394 @@
+"""
+Technical Indicators - RSI, EMA, MACD, Stochastic, ADX, ATR calculations
+"""
+
+import math
+from typing import List, Optional, Tuple
+from collections import deque
+
+def safe_float(value, default=0.0) -> float:
+    """Safely convert to float, handling NaN/Inf"""
+    try:
+        f = float(value)
+        if math.isnan(f) or math.isinf(f):
+            return default
+        return f
+    except (ValueError, TypeError):
+        return default
+
+def calculate_ema(prices: List[float], period: int) -> List[float]:
+    """Calculate Exponential Moving Average"""
+    if len(prices) < period:
+        return []
+    
+    ema = []
+    multiplier = 2 / (period + 1)
+    
+    # First EMA is SMA
+    sma = sum(prices[:period]) / period
+    ema.append(safe_float(sma))
+    
+    for price in prices[period:]:
+        new_ema = (safe_float(price) - ema[-1]) * multiplier + ema[-1]
+        ema.append(safe_float(new_ema))
+    
+    return ema
+
+def calculate_sma(prices: List[float], period: int) -> List[float]:
+    """Calculate Simple Moving Average"""
+    if len(prices) < period:
+        return []
+    
+    sma = []
+    for i in range(period - 1, len(prices)):
+        avg = sum(prices[i - period + 1:i + 1]) / period
+        sma.append(safe_float(avg))
+    
+    return sma
+
+def calculate_rsi(prices: List[float], period: int = 14) -> List[float]:
+    """Calculate Relative Strength Index"""
+    if len(prices) < period + 1:
+        return []
+    
+    gains = []
+    losses = []
+    
+    for i in range(1, len(prices)):
+        change = prices[i] - prices[i - 1]
+        gains.append(max(0, change))
+        losses.append(max(0, -change))
+    
+    rsi = []
+    
+    # First RSI using SMA
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    
+    if avg_loss == 0:
+        rsi.append(100.0)
+    else:
+        rs = avg_gain / avg_loss
+        rsi.append(safe_float(100 - (100 / (1 + rs))))
+    
+    # Subsequent RSI using EMA
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        
+        if avg_loss == 0:
+            rsi.append(100.0)
+        else:
+            rs = avg_gain / avg_loss
+            rsi.append(safe_float(100 - (100 / (1 + rs))))
+    
+    return rsi
+
+def calculate_macd(
+    prices: List[float],
+    fast_period: int = 12,
+    slow_period: int = 26,
+    signal_period: int = 9
+) -> Tuple[List[float], List[float], List[float]]:
+    """
+    Calculate MACD
+    Returns: (macd_line, signal_line, histogram)
+    """
+    if len(prices) < slow_period + signal_period:
+        return [], [], []
+    
+    ema_fast = calculate_ema(prices, fast_period)
+    ema_slow = calculate_ema(prices, slow_period)
+    
+    # Align EMAs
+    offset = slow_period - fast_period
+    ema_fast = ema_fast[offset:]
+    
+    if len(ema_fast) != len(ema_slow):
+        min_len = min(len(ema_fast), len(ema_slow))
+        ema_fast = ema_fast[-min_len:]
+        ema_slow = ema_slow[-min_len:]
+    
+    macd_line = [safe_float(f - s) for f, s in zip(ema_fast, ema_slow)]
+    
+    if len(macd_line) < signal_period:
+        return [], [], []
+    
+    signal_line = calculate_ema(macd_line, signal_period)
+    
+    # Align for histogram
+    macd_trimmed = macd_line[-(len(signal_line)):]
+    histogram = [safe_float(m - s) for m, s in zip(macd_trimmed, signal_line)]
+    
+    return macd_line, signal_line, histogram
+
+def calculate_stochastic(
+    highs: List[float],
+    lows: List[float],
+    closes: List[float],
+    period: int = 14,
+    smooth_k: int = 3,
+    smooth_d: int = 3
+) -> Tuple[List[float], List[float]]:
+    """
+    Calculate Stochastic Oscillator
+    Returns: (%K, %D)
+    """
+    if len(closes) < period:
+        return [], []
+    
+    raw_k = []
+    
+    for i in range(period - 1, len(closes)):
+        period_high = max(highs[i - period + 1:i + 1])
+        period_low = min(lows[i - period + 1:i + 1])
+        
+        if period_high == period_low:
+            raw_k.append(50.0)
+        else:
+            k = ((closes[i] - period_low) / (period_high - period_low)) * 100
+            raw_k.append(safe_float(k))
+    
+    # Smooth %K
+    k_line = calculate_sma(raw_k, smooth_k) if smooth_k > 1 else raw_k
+    
+    # Calculate %D (SMA of %K)
+    d_line = calculate_sma(k_line, smooth_d) if smooth_d > 1 else k_line
+    
+    return k_line, d_line
+
+def calculate_adx(
+    highs: List[float],
+    lows: List[float],
+    closes: List[float],
+    period: int = 14
+) -> Tuple[List[float], List[float], List[float]]:
+    """
+    Calculate Average Directional Index
+    Returns: (ADX, +DI, -DI)
+    """
+    if len(closes) < period + 1:
+        return [], [], []
+    
+    tr_list = []
+    plus_dm_list = []
+    minus_dm_list = []
+    
+    for i in range(1, len(closes)):
+        high = highs[i]
+        low = lows[i]
+        prev_close = closes[i - 1]
+        prev_high = highs[i - 1]
+        prev_low = lows[i - 1]
+        
+        # True Range
+        tr = max(
+            high - low,
+            abs(high - prev_close),
+            abs(low - prev_close)
+        )
+        tr_list.append(safe_float(tr))
+        
+        # Directional Movement
+        plus_dm = max(0, high - prev_high) if (high - prev_high) > (prev_low - low) else 0
+        minus_dm = max(0, prev_low - low) if (prev_low - low) > (high - prev_high) else 0
+        
+        plus_dm_list.append(safe_float(plus_dm))
+        minus_dm_list.append(safe_float(minus_dm))
+    
+    # Smoothed values
+    atr = calculate_ema(tr_list, period)
+    smoothed_plus = calculate_ema(plus_dm_list, period)
+    smoothed_minus = calculate_ema(minus_dm_list, period)
+    
+    if not atr or not smoothed_plus or not smoothed_minus:
+        return [], [], []
+    
+    # Align lengths
+    min_len = min(len(atr), len(smoothed_plus), len(smoothed_minus))
+    atr = atr[-min_len:]
+    smoothed_plus = smoothed_plus[-min_len:]
+    smoothed_minus = smoothed_minus[-min_len:]
+    
+    plus_di = []
+    minus_di = []
+    dx_list = []
+    
+    for i in range(len(atr)):
+        if atr[i] == 0:
+            plus_di.append(0.0)
+            minus_di.append(0.0)
+            dx_list.append(0.0)
+        else:
+            pdi = (smoothed_plus[i] / atr[i]) * 100
+            mdi = (smoothed_minus[i] / atr[i]) * 100
+            plus_di.append(safe_float(pdi))
+            minus_di.append(safe_float(mdi))
+            
+            di_sum = pdi + mdi
+            if di_sum == 0:
+                dx_list.append(0.0)
+            else:
+                dx = (abs(pdi - mdi) / di_sum) * 100
+                dx_list.append(safe_float(dx))
+    
+    # ADX is smoothed DX
+    adx = calculate_ema(dx_list, period)
+    
+    # Align output
+    if adx:
+        offset = len(plus_di) - len(adx)
+        plus_di = plus_di[offset:]
+        minus_di = minus_di[offset:]
+    
+    return adx, plus_di, minus_di
+
+def calculate_atr(
+    highs: List[float],
+    lows: List[float],
+    closes: List[float],
+    period: int = 14
+) -> List[float]:
+    """Calculate Average True Range"""
+    if len(closes) < period + 1:
+        return []
+    
+    tr_list = []
+    
+    for i in range(1, len(closes)):
+        high = highs[i]
+        low = lows[i]
+        prev_close = closes[i - 1]
+        
+        tr = max(
+            high - low,
+            abs(high - prev_close),
+            abs(low - prev_close)
+        )
+        tr_list.append(safe_float(tr))
+    
+    return calculate_ema(tr_list, period)
+
+def calculate_hma(prices: List[float], period: int = 9) -> List[float]:
+    """Calculate Hull Moving Average"""
+    if len(prices) < period:
+        return []
+    
+    half_period = period // 2
+    sqrt_period = int(math.sqrt(period))
+    
+    wma_half = calculate_wma(prices, half_period)
+    wma_full = calculate_wma(prices, period)
+    
+    if not wma_half or not wma_full:
+        return []
+    
+    # Align
+    offset = len(wma_half) - len(wma_full)
+    wma_half = wma_half[offset:]
+    
+    raw_hma = [2 * h - f for h, f in zip(wma_half, wma_full)]
+    
+    return calculate_wma(raw_hma, sqrt_period)
+
+def calculate_wma(prices: List[float], period: int) -> List[float]:
+    """Calculate Weighted Moving Average"""
+    if len(prices) < period:
+        return []
+    
+    wma = []
+    weights = list(range(1, period + 1))
+    weight_sum = sum(weights)
+    
+    for i in range(period - 1, len(prices)):
+        weighted_sum = sum(
+            prices[i - period + 1 + j] * weights[j]
+            for j in range(period)
+        )
+        wma.append(safe_float(weighted_sum / weight_sum))
+    
+    return wma
+
+def calculate_bollinger_bands(
+    prices: List[float],
+    period: int = 20,
+    std_dev: float = 2.0
+) -> Tuple[List[float], List[float], List[float]]:
+    """
+    Calculate Bollinger Bands
+    Returns: (upper, middle, lower)
+    """
+    if len(prices) < period:
+        return [], [], []
+    
+    middle = calculate_sma(prices, period)
+    upper = []
+    lower = []
+    
+    for i in range(len(middle)):
+        idx = i + period - 1
+        window = prices[idx - period + 1:idx + 1]
+        
+        mean = middle[i]
+        variance = sum((p - mean) ** 2 for p in window) / period
+        std = math.sqrt(variance)
+        
+        upper.append(safe_float(mean + std_dev * std))
+        lower.append(safe_float(mean - std_dev * std))
+    
+    return upper, middle, lower
+
+def calculate_zscore(prices: List[float], period: int = 20) -> List[float]:
+    """Calculate Z-Score for mean reversion detection"""
+    if len(prices) < period:
+        return []
+    
+    zscores = []
+    
+    for i in range(period - 1, len(prices)):
+        window = prices[i - period + 1:i + 1]
+        mean = sum(window) / period
+        variance = sum((p - mean) ** 2 for p in window) / period
+        std = math.sqrt(variance) if variance > 0 else 0.0001
+        
+        zscore = (prices[i] - mean) / std
+        zscores.append(safe_float(zscore))
+    
+    return zscores
+
+def detect_regime(
+    adx_values: List[float],
+    atr_values: List[float],
+    prices: List[float]
+) -> str:
+    """
+    Detect market regime: TRENDING, RANGING, or TRANSITIONAL
+    """
+    if not adx_values or not atr_values:
+        return "UNKNOWN"
+    
+    current_adx = adx_values[-1] if adx_values else 0
+    
+    # ADX thresholds
+    if current_adx >= 25:
+        return "TRENDING"
+    elif current_adx <= 15:
+        return "RANGING"
+    else:
+        return "TRANSITIONAL"
+
+def calculate_volatility_percentile(
+    atr_values: List[float],
+    lookback: int = 100
+) -> float:
+    """Calculate current volatility as percentile of recent history"""
+    if len(atr_values) < 2:
+        return 50.0
+    
+    recent = atr_values[-lookback:] if len(atr_values) >= lookback else atr_values
+    current = atr_values[-1]
+    
+    below_count = sum(1 for v in recent if v < current)
+    percentile = (below_count / len(recent)) * 100
+    
+    return safe_float(percentile)
