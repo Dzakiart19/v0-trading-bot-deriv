@@ -1,0 +1,64 @@
+Fix WebSocket connection issues in the web application. The WebSocket is getting 403 Forbidden errors when users try to connect from the Telegram WebApp.
+
+
+Modifikasi sistem inisialisasi bot agar ketika trading dimulai, semua data historis (ticks/candles) dan indikator teknikal sudah dimuat sepenuhnya ke dalam memori. Bot harus:
+
+Preload Data Historis: Saat tombol 'Mulai Trading' ditekan, bot langsung memuat minimal 100-150 tick historis dari Deriv API secara synchronous
+Kalkulasi Indikator: Semua indikator (RSI, EMA, MACD, Stochastic, ADX, dll) harus dihitung dan siap digunakan sebelum trading dimulai
+Status Ready: Bot harus menampilkan status "âœ… Semua data siap, siap trading..." hanya setelah:
+Data historis berhasil dimuat
+Strategi sudah diinisialisasi dengan data tersebut
+Indikator sudah terkalkulasi dan valid
+Tidak Ada Delay: Eliminasi periode "menunggu data" atau "mengumpulkan data pasar" setelah bot aktif
+Langsung Analisis: Begitu subscribe ke live tick stream, bot sudah bisa langsung menganalisis dan mencari entry point yang optimal
+Tujuannya adalah agar user tidak perlu menunggu bot mengumpulkan data setelah aktivasi - semua persiapan dilakukan di fase warmup sebelum trading aktif dimulai.
+
+
+Problems identified:
+1. WebSocket endpoint "/ws/stream" is rejecting connections with 403 Forbidden
+2. Trading requests are timing out when trying to place trades
+3. The Deriv WebSocket connection is losing connection during trades
+
+Please fix these issues:
+
+1. Update the WebSocket endpoint in web_server.py to properly authenticate Telegram WebApp users:
+   - Allow WebSocket connections with valid session tokens
+   - Verify Telegram initData before accepting WebSocket connections
+   - Add proper CORS headers for WebSocket connections
+
+2. Fix the authentication flow in webapps/tick-picker.html (and other webapp files):
+   - Ensure the session token is properly passed to WebSocket connection
+   - Add retry logic for WebSocket connections
+   - Show connection status to user
+
+3. Fix the Deriv WebSocket reconnection logic in deriv_ws.py:
+   - Improve ping/pong timeout handling
+   - Add automatic reconnection for proposal requests
+   - Queue pending requests during reconnection
+
+4. Update the WebSocket manager in web_server.py:
+   - Add session validation for WebSocket connections
+   - Implement proper connection state management
+   - Add heartbeat/ping mechanism to keep connections alive
+
+5. Ensure all WebApp pages can connect to WebSocket:
+   - terminal.html
+   - tick-picker.html
+   - digitpad.html
+   - amt.html
+   - sniper.html
+   - index.html
+
+The goal is to have stable WebSocket connections that:
+- Authenticate properly using Telegram WebApp initData
+- Stay connected during trading sessions
+- Automatically reconnect if disconnected
+- Handle concurrent connections from multiple users
+- Send real-time trade updates to connected clients
+
+Make sure to test the connection flow:
+1. User opens WebApp from Telegram
+2. WebApp authenticates and gets session token
+3. WebSocket connects successfully
+4. Trading starts and updates are received in real-time
+5. Connection stays stable during entire trading session
