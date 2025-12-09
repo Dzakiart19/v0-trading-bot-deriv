@@ -63,33 +63,73 @@ class TradingStopRequest(BaseModel):
 # ==================== WebSocket Manager ====================
 
 class ConnectionManager:
-    """Manage WebSocket connections"""
+    """Manage WebSocket connections with heartbeat and session validation"""
     
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
         self.user_strategies: Dict[str, str] = {}
+        self.connection_info: Dict[str, Dict] = {}  # user_id -> {telegram_id, connected_at, last_ping}
+        self.telegram_to_user: Dict[int, str] = {}  # telegram_id -> user_id mapping
+        self._heartbeat_task: Optional[asyncio.Task] = None
+        self._heartbeat_interval = 30  # Send ping every 30 seconds
+        self._connection_timeout = 90  # Disconnect if no pong for 90 seconds
     
-    async def connect(self, websocket: WebSocket, user_id: str):
+    async def connect(self, websocket: WebSocket, user_id: str, telegram_id: int = None):
         await websocket.accept()
         self.active_connections[user_id] = websocket
-        logger.info(f"WebSocket connected: {user_id}")
+        self.connection_info[user_id] = {
+            "telegram_id": telegram_id,
+            "connected_at": datetime.now().isoformat(),
+            "last_ping": datetime.now().timestamp(),
+            "last_pong": datetime.now().timestamp()
+        }
+        if telegram_id:
+            self.telegram_to_user[telegram_id] = user_id
+        logger.info(f"WebSocket connected: user_id={user_id}, telegram_id={telegram_id}")
     
     def disconnect(self, user_id: str):
+        info = self.connection_info.pop(user_id, None)
         self.active_connections.pop(user_id, None)
+        if info and info.get("telegram_id"):
+            self.telegram_to_user.pop(info["telegram_id"], None)
         logger.info(f"WebSocket disconnected: {user_id}")
+    
+    def update_pong(self, user_id: str):
+        """Update last pong timestamp when client responds to ping"""
+        if user_id in self.connection_info:
+            self.connection_info[user_id]["last_pong"] = datetime.now().timestamp()
+    
+    def get_user_by_telegram(self, telegram_id: int) -> Optional[str]:
+        """Get user_id from telegram_id"""
+        return self.telegram_to_user.get(telegram_id)
+    
+    def is_connected(self, user_id: str) -> bool:
+        """Check if user is connected"""
+        return user_id in self.active_connections
     
     async def send_personal(self, user_id: str, data: dict):
         if user_id in self.active_connections:
             try:
                 await self.active_connections[user_id].send_json(data)
-            except:
+            except Exception as e:
+                logger.error(f"Error sending to {user_id}: {e}")
                 self.disconnect(user_id)
+    
+    async def send_to_telegram_user(self, telegram_id: int, data: dict):
+        """Send message to user by telegram_id"""
+        user_id = self.telegram_to_user.get(telegram_id)
+        if user_id:
+            await self.send_personal(user_id, data)
+        else:
+            # Fallback: try using telegram_id as user_id (old behavior)
+            await self.send_personal(str(telegram_id), data)
     
     async def broadcast(self, data: dict):
         for user_id, ws in list(self.active_connections.items()):
             try:
                 await ws.send_json(data)
-            except:
+            except Exception as e:
+                logger.error(f"Error broadcasting to {user_id}: {e}")
                 self.disconnect(user_id)
     
     def set_strategy(self, user_id: str, strategy: str):
@@ -97,6 +137,17 @@ class ConnectionManager:
     
     def get_strategy(self, user_id: str) -> Optional[str]:
         return self.user_strategies.get(user_id)
+    
+    def get_connection_count(self) -> int:
+        """Get number of active connections"""
+        return len(self.active_connections)
+    
+    def get_all_connections(self) -> List[Dict]:
+        """Get info about all active connections"""
+        return [
+            {"user_id": uid, **info}
+            for uid, info in self.connection_info.items()
+        ]
 
 
 # ==================== Session Manager ====================
@@ -1062,22 +1113,38 @@ async def get_deriv_account_info(telegram_id: int = Query(...)):
 # ==================== WebSocket ====================
 
 @app.websocket("/ws/stream")
-async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
-    """WebSocket for real-time updates"""
-    session = session_manager.get_session(token)
-    if not session:
+async def websocket_endpoint(
+    websocket: WebSocket, 
+    token: str = Query(None),
+    telegram_id: int = Query(None)
+):
+    """WebSocket for real-time updates - accepts token OR telegram_id for auth"""
+    user_id = None
+    resolved_telegram_id = None
+    
+    # Try token-based authentication first
+    if token:
+        session = session_manager.get_session(token)
+        if session:
+            user_id = session.get("user_id")
+            resolved_telegram_id = session.get("telegram_id")
+    
+    # Fallback to telegram_id direct authentication
+    if not user_id and telegram_id:
+        user_id = str(telegram_id)
+        resolved_telegram_id = telegram_id
+    
+    # Reject if no valid authentication
+    if not user_id:
         await websocket.close(code=4001)
         return
     
-    user_id = session.get("user_id")
-    telegram_id = session.get("telegram_id")
-    
-    await manager.connect(websocket, user_id)
+    await manager.connect(websocket, user_id, resolved_telegram_id)
     
     try:
-        strategy = session_manager.get_strategy(telegram_id)
-        ws = deriv_connections.get(telegram_id)
-        deriv_account = session_manager.get_deriv_account(telegram_id)
+        strategy = session_manager.get_strategy(resolved_telegram_id)
+        ws = deriv_connections.get(resolved_telegram_id)
+        deriv_account = session_manager.get_deriv_account(resolved_telegram_id)
         
         snapshot_data = {
             "connected": False,
@@ -1113,7 +1180,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             
             if data.get("type") == "set_strategy":
                 new_strategy = data.get("strategy")
-                session_manager.set_strategy(telegram_id, new_strategy)
+                session_manager.set_strategy(resolved_telegram_id, new_strategy)
                 manager.set_strategy(user_id, new_strategy)
                 
                 await websocket.send_json({
@@ -1126,7 +1193,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             
             elif data.get("type") == "sync_account":
                 account_data = data.get("data", {})
-                session_manager.set_deriv_account(telegram_id, account_data)
+                session_manager.set_deriv_account(resolved_telegram_id, account_data)
                 await websocket.send_json({"type": "account_synced", "success": True})
                 
     except WebSocketDisconnect:
