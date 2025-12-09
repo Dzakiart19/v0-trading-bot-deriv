@@ -196,6 +196,47 @@
             border-color: var(--accent-green);
             background: rgba(57, 211, 83, 0.1);
         }
+        .auto-trade-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 30px;
+        }
+        .auto-trade-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px;
+            background: var(--bg-card);
+            border-radius: 8px;
+        }
+        .toggle-switch {
+            width: 50px;
+            height: 26px;
+            background: var(--border-color);
+            border-radius: 13px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .toggle-switch.active {
+            background: var(--accent-green);
+        }
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.3s;
+        }
+        .toggle-switch.active::after {
+            transform: translateX(24px);
+        }
     </style>
 </head>
 <body>
@@ -205,9 +246,7 @@
             <p>Pilih strategi trading dan mulai auto trading</p>
         </div>
 
-        <div id="telegram-info" class="info-box" style="display: none;">
-            Login via Telegram bot terdeteksi. Akun Deriv Anda sudah terkoneksi.
-        </div>
+        <div id="telegram-info" class="info-box" style="display: none;"></div>
 
         <div class="login-section">
             <h2>
@@ -220,8 +259,8 @@
             <div class="login-status">
                 <div class="status-dot" id="statusDot"></div>
                 <div>
-                    <div id="statusText">Not Connected</div>
-                    <div style="color: var(--text-secondary); font-size: 0.85rem;" id="statusSubtext">Login via Telegram bot atau klik tombol di bawah</div>
+                    <div id="statusText">Connecting...</div>
+                    <div style="color: var(--text-secondary); font-size: 0.85rem;" id="statusSubtext">Checking login status...</div>
                 </div>
             </div>
             <button class="login-btn" id="loginBtn" onclick="loginDeriv()">
@@ -285,29 +324,78 @@
         
         const tgUser = tg?.initDataUnsafe?.user;
         const telegramId = tgUser?.id;
+        const initData = tg?.initData;
         
         let DERIV_APP_ID = '1089';
         let ws = null;
         let authToken = localStorage.getItem('deriv_token');
+        let sessionToken = null;
+        let sessionValidated = false;
         let currentStrategy = null;
+        let isConnected = false;
         
         const API_BASE = window.location.origin;
         
         async function init() {
             await getDerivAppId();
             
+            if (initData) {
+                await authenticateTelegram();
+            }
+            
             if (telegramId) {
                 const connected = await checkTelegramLogin();
                 if (connected) {
-                    document.getElementById('telegram-info').style.display = 'block';
-                    document.getElementById('telegram-info').classList.add('success');
-                    document.getElementById('telegram-info').textContent = 'Login via Telegram bot berhasil! Akun Deriv sudah terkoneksi.';
                     return;
                 }
             }
             
             if (authToken) {
                 connectWebSocket();
+            } else {
+                document.getElementById('statusText').textContent = 'Not Connected';
+                document.getElementById('statusSubtext').textContent = 'Login via Telegram bot atau klik tombol di bawah';
+            }
+        }
+        
+        async function authenticateTelegram() {
+            if (!initData) {
+                sessionValidated = false;
+                return;
+            }
+            
+            try {
+                const resp = await fetch(API_BASE + '/api/auth/telegram', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ init_data: initData })
+                });
+                
+                if (!resp.ok) {
+                    sessionValidated = false;
+                    sessionToken = null;
+                    return;
+                }
+                
+                const data = await resp.json();
+                
+                if (data.success && data.token) {
+                    sessionToken = data.token;
+                    sessionValidated = true;
+                    localStorage.setItem('session_token', sessionToken);
+                    
+                    if (data.deriv_connected && data.deriv_account) {
+                        authToken = data.deriv_account.token || authToken;
+                        currentStrategy = data.selected_strategy;
+                    }
+                } else {
+                    sessionValidated = false;
+                    sessionToken = null;
+                }
+            } catch (e) {
+                console.error('Telegram auth error:', e);
+                sessionValidated = false;
+                sessionToken = null;
             }
         }
         
@@ -332,11 +420,20 @@
                     currentStrategy = data.strategy;
                     showConnected(data.balance, data.currency, data.loginid, data.account_type);
                     highlightStrategy(data.strategy);
+                    
+                    document.getElementById('telegram-info').style.display = 'block';
+                    document.getElementById('telegram-info').classList.add('success');
+                    document.getElementById('telegram-info').textContent = 'Login via Telegram bot berhasil! Akun Deriv sudah terkoneksi otomatis.';
                     return true;
                 }
+                
+                document.getElementById('statusText').textContent = 'Not Connected';
+                document.getElementById('statusSubtext').textContent = 'Login via Telegram bot atau klik tombol di bawah';
                 return false;
             } catch (e) {
                 console.error('Check login error:', e);
+                document.getElementById('statusText').textContent = 'Not Connected';
+                document.getElementById('statusSubtext').textContent = 'Login untuk melanjutkan';
                 return false;
             }
         }
@@ -351,6 +448,7 @@
         }
         
         function showConnected(balance, currency, loginid, accountType) {
+            isConnected = true;
             document.getElementById('statusDot').classList.add('connected');
             document.getElementById('statusText').textContent = 'Connected';
             document.getElementById('statusSubtext').textContent = loginid || 'Connected';
@@ -358,7 +456,7 @@
             document.getElementById('loginBtn').disabled = true;
             document.getElementById('loginBtn').classList.add('connected');
             document.getElementById('accountInfo').classList.add('show');
-            document.getElementById('balanceText').textContent = '$' + parseFloat(balance || 0).toFixed(2);
+            document.getElementById('balanceText').textContent = currency + ' ' + parseFloat(balance || 0).toFixed(2);
             document.getElementById('accountId').textContent = loginid || '-';
         }
         
@@ -387,8 +485,8 @@
                 localStorage.setItem('deriv_token', authToken);
                 connectWebSocket();
                 
-                if (telegramId) {
-                    fetch(API_BASE + '/api/telegram/sync-deriv-token?telegram_id=' + telegramId + '&token=' + authToken, {
+                if (sessionToken && sessionValidated) {
+                    fetch(API_BASE + '/api/telegram/sync-deriv-token?session_token=' + sessionToken + '&deriv_token=' + authToken, {
                         method: 'POST'
                     });
                 }
@@ -412,8 +510,8 @@
                     window.close();
                 }
                 
-                if (telegramId) {
-                    fetch(API_BASE + '/api/telegram/sync-deriv-token?telegram_id=' + telegramId + '&token=' + token1, {
+                if (sessionToken && sessionValidated) {
+                    fetch(API_BASE + '/api/telegram/sync-deriv-token?session_token=' + sessionToken + '&deriv_token=' + token1, {
                         method: 'POST'
                     });
                 }
@@ -442,10 +540,23 @@
                     showConnected(auth.balance, auth.currency, auth.loginid, accountType);
                     
                     ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+                    
+                    if (sessionToken && sessionValidated) {
+                        fetch(API_BASE + '/api/telegram/sync-deriv-account?session_token=' + sessionToken, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                balance: auth.balance,
+                                currency: auth.currency,
+                                loginid: auth.loginid,
+                                account_type: accountType
+                            })
+                        });
+                    }
                 }
                 
                 if (data.balance) {
-                    document.getElementById('balanceText').textContent = `$${parseFloat(data.balance.balance).toFixed(2)}`;
+                    document.getElementById('balanceText').textContent = data.balance.currency + ' ' + parseFloat(data.balance.balance).toFixed(2);
                 }
                 
                 if (data.error) {
@@ -453,6 +564,7 @@
                     if (data.error.code === 'InvalidToken') {
                         localStorage.removeItem('deriv_token');
                         authToken = null;
+                        document.getElementById('statusDot').classList.remove('connected');
                         document.getElementById('statusText').textContent = 'Session Expired';
                         document.getElementById('loginBtn').textContent = 'Login with Deriv';
                         document.getElementById('loginBtn').disabled = false;
@@ -462,13 +574,26 @@
             };
             
             ws.onclose = () => {
-                document.getElementById('statusDot').classList.remove('connected');
-                document.getElementById('statusText').textContent = 'Disconnected';
-                setTimeout(() => {
-                    if (authToken) connectWebSocket();
-                }, 3000);
+                if (isConnected) {
+                    setTimeout(() => {
+                        if (authToken) connectWebSocket();
+                    }, 3000);
+                }
             };
         }
+        
+        document.querySelectorAll('.strategy-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                const strategy = card.dataset.strategy;
+                currentStrategy = strategy;
+                
+                if (telegramId) {
+                    fetch(API_BASE + '/api/user/strategy?token=' + localStorage.getItem('session_token') + '&strategy=' + strategy, {
+                        method: 'POST'
+                    }).catch(() => {});
+                }
+            });
+        });
         
         checkOAuthCallback();
         init();
