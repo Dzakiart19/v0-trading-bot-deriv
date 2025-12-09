@@ -392,3 +392,46 @@ def calculate_volatility_percentile(
     percentile = (below_count / len(recent)) * 100
     
     return safe_float(percentile)
+
+
+class TechnicalIndicators:
+    """
+    Class wrapper for technical indicator calculations
+    Used by Terminal and Sniper strategies
+    """
+    
+    def calculate_rsi(self, prices: List[float], period: int = 14) -> Optional[float]:
+        """Calculate RSI and return latest value"""
+        result = calculate_rsi(prices, period)
+        return result[-1] if result else None
+    
+    def calculate_ema(self, prices: List[float], period: int) -> Optional[float]:
+        """Calculate EMA and return latest value"""
+        result = calculate_ema(prices, period)
+        return result[-1] if result else None
+    
+    def calculate_macd(self, prices: List[float]) -> Optional[dict]:
+        """Calculate MACD and return latest values as dict"""
+        macd_line, signal_line, histogram = calculate_macd(prices)
+        if not macd_line or not signal_line or not histogram:
+            return None
+        return {
+            "macd": macd_line[-1],
+            "signal": signal_line[-1],
+            "histogram": histogram[-1]
+        }
+    
+    def calculate_stochastic(self, prices: List[float], period: int = 14) -> Optional[float]:
+        """Calculate Stochastic %K and return latest value"""
+        k_line, d_line = calculate_stochastic(prices, prices, prices, period)
+        return k_line[-1] if k_line else None
+    
+    def calculate_adx(self, prices: List[float], period: int = 14) -> Optional[float]:
+        """Calculate ADX and return latest value"""
+        adx, plus_di, minus_di = calculate_adx(prices, prices, prices, period)
+        return adx[-1] if adx else None
+    
+    def calculate_atr(self, prices: List[float], period: int = 14) -> Optional[float]:
+        """Calculate ATR and return latest value"""
+        result = calculate_atr(prices, prices, prices, period)
+        return result[-1] if result else None
