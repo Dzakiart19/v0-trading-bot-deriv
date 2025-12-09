@@ -1,0 +1,65 @@
+PROBLEM: Auto trading tidak bekerja sama sekali, baik dari bot maupun webapps. User klik auto trade di bot stuck dengan error "Trading already running" padahal tidak ada trading yang jalan. WebApps juga tidak bisa start/stop auto trade sendiri. Semua strategi (Terminal, Sniper, DigitPad, dll) mengalami masalah yang sama.
+
+ROOT CAUSES:
+1. Trading state management rusak - state tersimpan di memory tidak pernah di-reset saat bot restart
+2. WebApps tidak bisa control trading - hanya bisa view, tidak ada API endpoint untuk start/stop trading dari webapp
+3. No real-time sync - WebApps tidak menampilkan status trading yang sedang berjalan
+
+REQUIRED FIXES:
+
+FIX 1 - Reset Trading State Properly:
+File: telegram_bot.py
+- Di method _start_trading(), sebelum start trading baru, PAKSA stop trading lama dan clear state
+- Hapus check "if tm.state == TradingState.RUNNING" yang bikin stuck
+- Force create trading manager baru setiap kali user klik start
+
+FIX 2 - Add WebApp Trading Control API:
+File: web_server.py
+- Buat endpoint POST /api/trading/start dengan body: {telegram_id, symbol, strategy}
+- Buat endpoint POST /api/trading/stop dengan body: {telegram_id}
+- Buat endpoint GET /api/trading/status?telegram_id=xxx untuk cek status real-time
+- Endpoint ini harus bisa trigger trading di telegram bot (reuse existing trading_manager)
+
+FIX 3 - Real-Time WebSocket Updates:
+File: web_server.py
+- Enhance websocket /ws/stream untuk broadcast trading events
+- Kirim event: trade_opened, trade_closed, status_update ke webapp
+- Format: {type: "trade_opened", data: {profit, balance, trades, win_rate}}
+
+FIX 4 - Update ALL WebApps HTML dengan Auto Trade UI:
+Files: webapps/terminal.html, webapps/sniper.html, webapps/digitpad.html, webapps/tick-picker.html, webapps/amt.html
+
+Tambahkan di setiap webapp:
+- Toggle switch "Auto Trade ON/OFF" yang cantik
+- Status panel menampilkan: Total Trades, Win Rate, Profit/Loss, Balance
+- Real-time updates via WebSocket
+- Function startAutoTrade() yang call POST /api/trading/start
+- Function stopAutoTrade() yang call POST /api/trading/stop
+- Function syncTradingStatus() yang call GET /api/trading/status setiap 5 detik
+
+FIX 5 - Clear State di Main.py:
+File: main.py
+- Di awal program (_early_cleanup), clear semua trading state files
+- Hapus logs/session_recovery.json
+- Reset semua trading_managers di memory
+
+EXPECTED RESULT:
+1. User klik "Auto Trade" di bot → Trading langsung start tanpa stuck
+2. User buka WebApp → Lihat status real-time trading yang sedang berjalan
+3. User toggle "Auto Trade ON" di WebApp → Trading start langsung
+4. User toggle "Auto Trade OFF" di WebApp → Trading stop langsung
+5. Sync dua arah: start di bot terlihat di webapp, start di webapp terlihat di bot
+6. Visual real-time: setiap trade baru, webapp update profit/loss/trades/win rate
+
+IMPLEMENTATION PRIORITY:
+1. Fix telegram_bot.py - force stop existing trading, allow restart
+2. Add web_server.py API endpoints - /api/trading/start, /api/trading/stop, /api/trading/status
+3. Update webapps HTML - add auto trade toggle + real-time status panel
+4. Test: start from bot → check webapp shows it, start from webapp → check bot shows it
+
+CODE STYLE:
+- Write COMPLETE code, no ellipsis (...)
+- Use existing deriv_ws, trading_manager, session_manager from codebase
+- Follow existing patterns in telegram_bot.py and web_server.py
+- HTML/JS: Use inline styles matching existing dark theme
+- Add proper error handling and logging
