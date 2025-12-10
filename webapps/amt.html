@@ -691,10 +691,11 @@
         function stopStatusSync() { if (statusSyncInterval) { clearInterval(statusSyncInterval); statusSyncInterval = null; } }
 
         function updateTradingUI(data) {
-            if (data.is_running !== undefined) { isAutoTrading = data.is_running; document.getElementById('autoTradeToggle').classList.toggle('active', isAutoTrading); updateAutoTradeStatus(isAutoTrading ? 'running' : 'stopped'); }
+            if (data.is_running !== undefined) { isAutoTrading = data.is_running; document.getElementById('autoTradeToggle').classList.toggle('active', isAutoTrading); updateAutoTradeStatus(isAutoTrading ? 'running' : 'stopped'); if (isAutoTrading && !statusSyncInterval) startStatusSync(); else if (!isAutoTrading && statusSyncInterval) stopStatusSync(); }
             if (data.total_trades !== undefined) document.getElementById('autoTotalTrades').textContent = data.total_trades;
+            if (data.wins !== undefined && data.losses !== undefined) document.getElementById('autoTotalTrades').textContent = data.total_trades || (data.wins + data.losses);
             if (data.win_rate !== undefined) document.getElementById('autoWinRate').textContent = `${data.win_rate.toFixed(1)}%`;
-            if (data.profit !== undefined) { const el = document.getElementById('autoProfitLoss'); el.textContent = `$${data.profit.toFixed(2)}`; el.className = `value ${data.profit >= 0 ? 'profit' : 'loss'}`; }
+            if (data.profit !== undefined) { const el = document.getElementById('autoProfitLoss'); el.textContent = `${data.profit >= 0 ? '+' : ''}$${data.profit.toFixed(2)}`; el.className = `value ${data.profit >= 0 ? 'profit' : 'loss'}`; }
             if (data.balance !== undefined) { document.getElementById('autoBalance').textContent = `$${data.balance.toFixed(2)}`; document.getElementById('balance').textContent = `$${data.balance.toFixed(2)}`; }
         }
 

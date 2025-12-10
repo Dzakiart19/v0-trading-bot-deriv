@@ -542,9 +542,38 @@ Klik tombol di bawah untuk memulai:"""
             return
         
         tm = self._trading_managers[user.id]
+        
+        # Get stats before stopping
+        status = tm.get_status()
+        wins = status.get("wins", 0)
+        losses = status.get("losses", 0)
+        total_trades = status.get("trades", 0)
+        win_rate = status.get("win_rate", 0)
+        session_profit = status.get("session_profit", 0)
+        balance = status.get("balance", 0)
+        strategy = status.get("strategy", "N/A")
+        
         tm.stop()
         
-        await update.message.reply_text("⏹️ Trading dihentikan.")
+        # Format stop message with stats
+        profit_emoji = "📈" if session_profit >= 0 else "📉"
+        profit_color = "+" if session_profit >= 0 else ""
+        
+        stop_message = f"""⏹️ <b>Trading Dihentikan</b>
+
+📊 <b>Ringkasan Sesi:</b>
+├ Strategi: {strategy}
+├ Total Trade: {total_trades}
+├ ✅ Win: {wins}
+├ ❌ Lose: {losses}
+├ 📊 Winrate: {win_rate:.1f}%
+└ {profit_emoji} Profit: {profit_color}${session_profit:.2f}
+
+💰 Balance: ${balance:.2f}
+
+Gunakan /strategi untuk trading lagi."""
+        
+        await update.message.reply_text(stop_message, parse_mode=ParseMode.HTML)
     
     def force_stop_trading(self, user_id: int) -> Dict[str, Any]:
         """
@@ -1146,7 +1175,19 @@ Klik tombol di bawah untuk mulai trading:
         
         elif action == "stop_trading":
             if user.id in self._trading_managers:
-                self._trading_managers[user.id].stop()
+                tm = self._trading_managers[user.id]
+                
+                # Get stats before stopping
+                status = tm.get_status()
+                wins = status.get("wins", 0)
+                losses = status.get("losses", 0)
+                total_trades = status.get("trades", 0)
+                win_rate = status.get("win_rate", 0)
+                session_profit = status.get("session_profit", 0)
+                balance = status.get("balance", 0)
+                strategy = status.get("strategy", "N/A")
+                
+                tm.stop()
                 del self._trading_managers[user.id]
                 
                 # Unregister from web_server
@@ -1156,8 +1197,25 @@ Klik tombol di bawah untuk mulai trading:
                 except Exception as e:
                     logger.error(f"Failed to unregister trading manager: {e}")
                 
+                # Format stop message with stats
+                profit_emoji = "📈" if session_profit >= 0 else "📉"
+                profit_color = "+" if session_profit >= 0 else ""
+                
+                stop_message = f"""⏹️ <b>Trading Dihentikan</b>
+
+📊 <b>Ringkasan Sesi:</b>
+├ Strategi: {strategy}
+├ Total Trade: {total_trades}
+├ ✅ Win: {wins}
+├ ❌ Lose: {losses}
+├ 📊 Winrate: {win_rate:.1f}%
+└ {profit_emoji} Profit: {profit_color}${session_profit:.2f}
+
+💰 Balance: ${balance:.2f}"""
+                
                 await query.edit_message_text(
-                    "⏹️ Trading dihentikan.",
+                    stop_message,
+                    parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("🔙 Menu Utama", callback_data="menu_main")]
                     ])
