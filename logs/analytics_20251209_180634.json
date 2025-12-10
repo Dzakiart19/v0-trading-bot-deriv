@@ -1,0 +1,70 @@
+{
+  "export_time": "2025-12-09T18:06:34.452535",
+  "session_summary": {
+    "session_start": "2025-12-09T18:00:01.016233",
+    "total_trades": 1,
+    "wins": 1,
+    "losses": 0,
+    "win_rate": 100.0,
+    "rolling_win_rate": 100.0,
+    "total_profit": 0.04,
+    "profit_factor": Infinity,
+    "max_drawdown": 0.0,
+    "best_hours": [
+      18
+    ],
+    "martingale_success_rate": 0.0,
+    "hourly_profits": {
+      "0": 0.0,
+      "1": 0.0,
+      "2": 0.0,
+      "3": 0.0,
+      "4": 0.0,
+      "5": 0.0,
+      "6": 0.0,
+      "7": 0.0,
+      "8": 0.0,
+      "9": 0.0,
+      "10": 0.0,
+      "11": 0.0,
+      "12": 0.0,
+      "13": 0.0,
+      "14": 0.0,
+      "15": 0.0,
+      "16": 0.0,
+      "17": 0.0,
+      "18": 0.04,
+      "19": 0.0,
+      "20": 0.0,
+      "21": 0.0,
+      "22": 0.0,
+      "23": 0.0
+    }
+  },
+  "martingale_stats": {
+    "recovery_attempts": 0,
+    "recovery_success": 0,
+    "max_level_reached": 0
+  },
+  "trades": [
+    {
+      "date": "2025-12-09",
+      "time": "18:01:56",
+      "symbol": "1HZ50V",
+      "direction": "SELL",
+      "entry_price": 0.0,
+      "exit_price": 220564.89,
+      "stake": 0.6,
+      "payout": 0.64,
+      "profit": 0.04,
+      "result": "WIN",
+      "martingale_level": 0,
+      "balance_before": 10.04,
+      "balance_after": 10.04,
+      "win_rate": 100.0,
+      "strategy": "LDP",
+      "confidence": 0.7,
+      "confluence": 50.0
+    }
+  ]
+}
