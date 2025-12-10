@@ -35,9 +35,10 @@ class EntryFilter:
     - Trend alignment verification
     - Session time filtering
     - Entry score calculation
+    - Strategy-specific thresholds
     """
     
-    # Thresholds by risk level - Slightly lowered for more frequent trading
+    # Thresholds by risk level
     CONFIDENCE_THRESHOLDS = {
         RiskLevel.LOW: 0.65,
         RiskLevel.MEDIUM: 0.60,
@@ -45,7 +46,25 @@ class EntryFilter:
         RiskLevel.AGGRESSIVE: 0.50
     }
     
-    MIN_ENTRY_SCORE = 55  # Lowered from 60 for more entries
+    # Strategy-specific confidence overrides (higher = stricter)
+    STRATEGY_CONFIDENCE_OVERRIDES = {
+        "AMT": 0.75,        # Accumulator needs higher confidence
+        "SNIPER": 0.80,     # Sniper is ultra-selective
+        "TERMINAL": 0.65,
+        "TICK_PICKER": 0.60,
+        "DIGITPAD": 0.60,
+        "LDP": 0.60,
+        "MULTI_INDICATOR": 0.60
+    }
+    
+    # Strategy-specific minimum cooldown (seconds)
+    STRATEGY_COOLDOWNS = {
+        "AMT": 30,          # 30 seconds between AMT trades
+        "SNIPER": 45,       # 45 seconds for sniper
+        "DEFAULT": 10
+    }
+    
+    MIN_ENTRY_SCORE = 55
     HIGH_ENTRY_SCORE = 80
     
     # Scoring weights
@@ -63,14 +82,36 @@ class EntryFilter:
         "american": (13, 22)
     }
     
-    def __init__(self, risk_level: RiskLevel = RiskLevel.MEDIUM):
+    def __init__(self, risk_level: RiskLevel = RiskLevel.MEDIUM, strategy_name: str = "DEFAULT"):
         self.risk_level = risk_level
+        self.strategy_name = strategy_name
         self.stats = {
             "total_filtered": 0,
             "passed": 0,
             "blocked": 0,
             "blocked_reasons": {}
         }
+        self.last_signal_time = 0
+    
+    def set_strategy(self, strategy_name: str):
+        """Set strategy for strategy-specific filtering"""
+        self.strategy_name = strategy_name
+    
+    def _get_confidence_threshold(self) -> float:
+        """Get confidence threshold based on strategy and risk level"""
+        # Check for strategy-specific override first
+        if self.strategy_name in self.STRATEGY_CONFIDENCE_OVERRIDES:
+            return self.STRATEGY_CONFIDENCE_OVERRIDES[self.strategy_name]
+        return self.CONFIDENCE_THRESHOLDS[self.risk_level]
+    
+    def _check_cooldown(self) -> bool:
+        """Check if cooldown period has passed"""
+        import time
+        cooldown = self.STRATEGY_COOLDOWNS.get(
+            self.strategy_name, 
+            self.STRATEGY_COOLDOWNS["DEFAULT"]
+        )
+        return time.time() - self.last_signal_time >= cooldown
     
     def filter(
         self,
@@ -95,8 +136,19 @@ class EntryFilter:
         confidence = signal.get("confidence", 0)
         direction = signal.get("direction", "HOLD")
         
-        # 1. Confidence check
-        conf_threshold = self.CONFIDENCE_THRESHOLDS[self.risk_level]
+        # Check cooldown first
+        if not self._check_cooldown():
+            reasons.append("In cooldown period")
+            return FilterResult(
+                passed=False,
+                score=0,
+                risk_level=self.risk_level,
+                reasons=reasons,
+                adjustments={}
+            )
+        
+        # 1. Confidence check (with strategy-specific threshold)
+        conf_threshold = self._get_confidence_threshold()
         if confidence >= conf_threshold:
             scores["confidence"] = min(100, (confidence / conf_threshold) * 100)
         else:
@@ -171,9 +223,11 @@ class EntryFilter:
             adjustments["stake_increase"] = 1.2  # Increase stake by 20%
             reasons.append("High-quality setup")
         
-        # Update stats
+        # Update stats and last signal time
         if passed:
             self.stats["passed"] += 1
+            import time
+            self.last_signal_time = time.time()
         else:
             self.stats["blocked"] += 1
             for reason in reasons:

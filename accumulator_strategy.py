@@ -1,15 +1,16 @@
 """
 AMT Accumulator Strategy - Growth rate management with TP/SL
+Enhanced with volatility filter, barrier distance prediction, and smart entry timing
 Based on https://binarybot.live/amt/
 """
 
 import logging
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, field
-from collections import deque
-from enum import Enum
-import time
 import math
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,8 @@ class AccumulatorSignal:
     entry_price: float
     take_profit: float
     stop_loss: float
+    barrier_distance: float = 0.0  # Predicted barrier distance
+    barrier_hit_probability: float = 0.0  # Probability of hitting barrier
     analysis: Dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
     
@@ -45,6 +48,8 @@ class AccumulatorSignal:
             "entry_price": self.entry_price,
             "take_profit": self.take_profit,
             "stop_loss": self.stop_loss,
+            "barrier_distance": self.barrier_distance,
+            "barrier_hit_probability": self.barrier_hit_probability,
             "analysis": self.analysis,
             "timestamp": self.timestamp
         }
@@ -52,14 +57,16 @@ class AccumulatorSignal:
 
 class AccumulatorStrategy:
     """
-    AMT Accumulator Strategy
+    AMT Accumulator Strategy - Enhanced Version
     
     Features:
-    - Growth rate management (1-5%)
-    - Take Profit / Stop Loss tracking
-    - Trend strength analysis
-    - Volatility-based rate selection
-    - Multi-symbol support
+    - Conservative growth rate (default 1% for safety)
+    - Volatility filter - avoid high volatility entries
+    - Barrier distance prediction using ATR
+    - Smart entry timing - wait for price to move away from barrier
+    - Dynamic stake sizing based on balance
+    - Cooldown period after losses
+    - Trade history analysis for pattern detection
     """
     
     # Analysis windows
@@ -68,17 +75,25 @@ class AccumulatorStrategy:
     LONG_WINDOW = 50
     VOLATILITY_WINDOW = 20
     
-    # Thresholds
-    MIN_CONFIDENCE = 0.55  # Lowered for more trades
-    MIN_TICKS = 30  # Faster warmup
+    # Enhanced Thresholds - More Conservative
+    MIN_CONFIDENCE = 0.75  # Increased from 0.55 for safer entries
+    MIN_TICKS = 30
     
-    # Growth rate selection criteria
+    # Volatility Thresholds
+    MAX_ATR_PERCENTILE = 70  # Don't trade if ATR > 70th percentile
+    MAX_VOLATILITY_CV = 1.0  # Coefficient of variation threshold
+    
+    # Barrier Distance Settings
+    MIN_BARRIER_DISTANCE_MULTIPLIER = 2.0  # Min distance = 2x ATR
+    BARRIER_HIT_PROBABILITY_THRESHOLD = 0.30  # Max 30% probability of barrier hit
+    
+    # Growth rate selection - Conservative (always prefer 1%)
     GROWTH_CRITERIA = {
-        5: {"trend": "STRONG", "volatility": "LOW"},
-        4: {"trend": "STRONG", "volatility": "MEDIUM"},
-        3: {"trend": "MODERATE", "volatility": "LOW"},
-        2: {"trend": "MODERATE", "volatility": "MEDIUM"},
-        1: {"trend": "WEAK", "volatility": "HIGH"}
+        5: {"trend": "STRONG", "volatility": "VERY_LOW"},  # Rarely used
+        4: {"trend": "STRONG", "volatility": "VERY_LOW"},  # Rarely used
+        3: {"trend": "STRONG", "volatility": "LOW"},       # Rarely used
+        2: {"trend": "STRONG", "volatility": "LOW"},       # Sometimes
+        1: {"trend": "MODERATE", "volatility": "MEDIUM"}   # Default - safest
     }
     
     # Supported symbols
@@ -86,6 +101,11 @@ class AccumulatorStrategy:
         "R_100", "R_10", "R_25", "R_50", "R_75",
         "1HZ100V", "1HZ10V", "1HZ25V", "1HZ50V", "1HZ75V"
     ]
+    
+    # Cooldown Settings
+    DEFAULT_COOLDOWN = 30  # 30 seconds between trades
+    LOSS_COOLDOWN = 60  # 60 seconds after a loss
+    CONSECUTIVE_LOSS_COOLDOWN = 120  # 2 minutes after 2+ consecutive losses
     
     def __init__(self):
         # Per-symbol tracking
@@ -98,22 +118,100 @@ class AccumulatorStrategy:
         # Active accumulator positions
         self.positions: Dict[str, Dict] = {}
         
-        # Default settings
-        # Take profit after 10 successful ticks (accumulator grows ~10-20% per tick at 1-2%)
-        self.default_tp_multiplier = 1.5  # Conservative 1.5x stake TP (easier to hit)
-        self.default_sl_multiplier = 0.5  # 50% stake
+        # Conservative TP/SL settings
+        self.default_tp_multiplier = 1.2  # 1.2x stake TP (reduced from 1.5)
+        self.default_sl_multiplier = 0.3  # 30% stake SL (reduced from 50%)
         
         # Signal history
         self.signals: deque = deque(maxlen=100)
         self.last_signal_time = 0
-        self.signal_cooldown = 10  # seconds
+        self.signal_cooldown = 30  # Increased from 10 seconds
+        
+        # Trade history for pattern analysis
+        self.trade_history: deque = deque(maxlen=50)
+        self.consecutive_losses = 0
+        self.last_trade_result: Optional[str] = None
+        self.last_loss_time = 0
+        
+        # ATR history for volatility percentile
+        self.atr_history: deque = deque(maxlen=100)
+        
+        # Dynamic stake settings
+        self.min_stake_percent = 0.005  # 0.5% of balance minimum
+        self.max_stake_percent = 0.02   # 2% of balance maximum
     
     def _init_symbol(self, symbol: str):
         """Initialize tracking for a symbol"""
         self.symbol_data[symbol] = {
             "prices": deque(maxlen=200),
-            "last_tick": None
+            "last_tick": None,
+            "atr_values": deque(maxlen=50),
+            "volatility_history": deque(maxlen=50)
         }
+    
+    def record_trade_result(self, is_win: bool, profit: float = 0.0):
+        """Record trade result for pattern analysis"""
+        result = "WIN" if is_win else "LOSS"
+        self.trade_history.append({
+            "result": result,
+            "profit": profit,
+            "timestamp": time.time()
+        })
+        
+        if is_win:
+            self.consecutive_losses = 0
+        else:
+            self.consecutive_losses += 1
+            self.last_loss_time = time.time()
+        
+        self.last_trade_result = result
+        logger.info(f"Accumulator trade recorded: {result}, consecutive_losses={self.consecutive_losses}")
+    
+    def _get_current_cooldown(self) -> float:
+        """Get current cooldown based on recent performance"""
+        if self.consecutive_losses >= 3:
+            return self.CONSECUTIVE_LOSS_COOLDOWN
+        elif self.consecutive_losses >= 1:
+            return self.LOSS_COOLDOWN
+        return self.signal_cooldown
+    
+    def _is_in_cooldown(self) -> bool:
+        """Check if we're in cooldown period"""
+        current_time = time.time()
+        cooldown = self._get_current_cooldown()
+        
+        # Check cooldown from last signal
+        if current_time - self.last_signal_time < cooldown:
+            return True
+        
+        # Extra cooldown after losses
+        if self.consecutive_losses > 0:
+            time_since_loss = current_time - self.last_loss_time
+            if time_since_loss < self.LOSS_COOLDOWN:
+                return True
+        
+        return False
+    
+    def calculate_dynamic_stake(self, balance: float) -> float:
+        """Calculate stake based on balance - no hardcoded minimum"""
+        if balance <= 0:
+            return 0.35  # Absolute minimum
+        
+        # Base stake: 1% of balance
+        base_stake = balance * 0.01
+        
+        # Adjust based on consecutive losses
+        if self.consecutive_losses >= 2:
+            base_stake *= 0.5  # Reduce stake after losses
+        
+        # Apply min/max limits based on balance
+        min_stake = max(0.35, balance * self.min_stake_percent)
+        max_stake = balance * self.max_stake_percent
+        
+        stake = max(min_stake, min(base_stake, max_stake))
+        
+        logger.debug(f"Dynamic stake calculated: ${stake:.2f} (balance: ${balance:.2f})")
+        return stake
     
     def add_tick(self, symbol: str, tick: Dict[str, Any]) -> Optional[AccumulatorSignal]:
         """Add tick data for a symbol and analyze for signals"""
@@ -128,6 +226,13 @@ class AccumulatorStrategy:
         data["prices"].append(price)
         data["last_tick"] = tick
         
+        # Update ATR tracking
+        prices = list(data["prices"])
+        if len(prices) >= 15:
+            current_atr = self._calculate_atr(prices)
+            data["atr_values"].append(current_atr)
+            self.atr_history.append(current_atr)
+        
         # Update active position if exists
         if symbol in self.positions:
             self._update_position(symbol, price)
@@ -139,12 +244,7 @@ class AccumulatorStrategy:
     def analyze(self, symbol: str) -> Optional[AccumulatorSignal]:
         """
         Analyze market conditions for accumulator entry
-        
-        Args:
-            symbol: Trading symbol
-            
-        Returns:
-            AccumulatorSignal with recommended action
+        Enhanced with volatility filter and barrier distance prediction
         """
         if symbol not in self.symbol_data:
             return None
@@ -155,29 +255,71 @@ class AccumulatorStrategy:
         if len(prices) < self.MIN_TICKS:
             return None
         
-        # Check cooldown
-        if time.time() - self.last_signal_time < self.signal_cooldown:
+        # Check cooldown (including loss cooldown)
+        if self._is_in_cooldown():
+            logger.debug(f"Accumulator in cooldown, consecutive_losses={self.consecutive_losses}")
+            return None
+        
+        # Calculate volatility metrics
+        atr = self._calculate_atr(prices)
+        volatility = self._analyze_volatility(prices)
+        volatility_cv = self._calculate_volatility_cv(prices)
+        
+        # VOLATILITY FILTER - Skip high volatility conditions
+        if volatility == "HIGH":
+            logger.debug("Skipping - volatility too high for accumulator")
+            return None
+        
+        if volatility_cv > self.MAX_VOLATILITY_CV:
+            logger.debug(f"Skipping - volatility CV ({volatility_cv:.2f}) > threshold ({self.MAX_VOLATILITY_CV})")
+            return None
+        
+        # Check ATR percentile
+        atr_percentile = self._get_atr_percentile(atr)
+        if atr_percentile > self.MAX_ATR_PERCENTILE:
+            logger.debug(f"Skipping - ATR percentile ({atr_percentile:.0f}) > threshold ({self.MAX_ATR_PERCENTILE})")
             return None
         
         # Analyze trend
         trend_strength = self._analyze_trend(prices)
         
-        # Analyze volatility
-        volatility = self._analyze_volatility(prices)
+        # CONSERVATIVE: Only trade with MODERATE or STRONG trend
+        if trend_strength == "WEAK":
+            logger.debug("Skipping - trend too weak for accumulator")
+            return None
         
-        # Determine optimal growth rate
+        # Calculate barrier distance
+        current_price = prices[-1]
+        barrier_distance = self._calculate_barrier_distance(prices, atr)
+        
+        # Check if price is too close to potential barrier
+        min_safe_distance = atr * self.MIN_BARRIER_DISTANCE_MULTIPLIER
+        if barrier_distance < min_safe_distance:
+            logger.debug(f"Skipping - price too close to barrier ({barrier_distance:.4f} < {min_safe_distance:.4f})")
+            return None
+        
+        # Calculate probability of hitting barrier
+        barrier_hit_prob = self._calculate_barrier_hit_probability(prices, atr)
+        if barrier_hit_prob > self.BARRIER_HIT_PROBABILITY_THRESHOLD:
+            logger.debug(f"Skipping - barrier hit probability too high ({barrier_hit_prob:.1%})")
+            return None
+        
+        # Smart entry timing - check if price is moving away from barrier
+        if not self._is_good_entry_timing(prices):
+            logger.debug("Skipping - waiting for better entry timing")
+            return None
+        
+        # Determine optimal growth rate - ALWAYS prefer 1% for safety
         growth_rate = self._select_growth_rate(trend_strength, volatility)
         
-        # Calculate confidence
-        confidence = self._calculate_confidence(trend_strength, volatility)
+        # Calculate confidence with stricter requirements
+        confidence = self._calculate_confidence(trend_strength, volatility, barrier_hit_prob, atr_percentile)
         
         if confidence < self.MIN_CONFIDENCE:
+            logger.debug(f"Skipping - confidence too low ({confidence:.2%} < {self.MIN_CONFIDENCE:.2%})")
             return None
         
         # Calculate TP/SL
-        current_price = prices[-1]
-        atr = self._calculate_atr(prices)
-        
         take_profit = current_price * (1 + (growth_rate * self.default_tp_multiplier / 100))
         stop_loss = current_price * (1 - (self.default_sl_multiplier / 100))
         
@@ -190,11 +332,16 @@ class AccumulatorStrategy:
             entry_price=current_price,
             take_profit=take_profit,
             stop_loss=stop_loss,
+            barrier_distance=barrier_distance,
+            barrier_hit_probability=barrier_hit_prob,
             analysis={
                 "short_trend": self._calculate_momentum(prices, self.SHORT_WINDOW),
                 "medium_trend": self._calculate_momentum(prices, self.MEDIUM_WINDOW),
                 "long_trend": self._calculate_momentum(prices, self.LONG_WINDOW),
                 "atr": atr,
+                "atr_percentile": atr_percentile,
+                "volatility_cv": volatility_cv,
+                "consecutive_losses": self.consecutive_losses,
                 "recommended_rate": f"{growth_rate}%"
             }
         )
@@ -202,7 +349,10 @@ class AccumulatorStrategy:
         self.signals.append(signal)
         self.last_signal_time = time.time()
         
-        logger.info(f"Accumulator Signal: {symbol} rate={growth_rate}% trend={trend_strength} vol={volatility}")
+        logger.info(
+            f"Accumulator Signal: {symbol} rate={growth_rate}% trend={trend_strength} "
+            f"vol={volatility} conf={confidence:.1%} barrier_prob={barrier_hit_prob:.1%}"
+        )
         
         return signal
     
@@ -216,7 +366,8 @@ class AccumulatorStrategy:
         long_mom = self._calculate_momentum(prices, self.LONG_WINDOW)
         
         # All aligned and strong
-        if all(m > 0 for m in [short_mom, medium_mom, long_mom]) or all(m < 0 for m in [short_mom, medium_mom, long_mom]):
+        if all(m > 0 for m in [short_mom, medium_mom, long_mom]) or \
+           all(m < 0 for m in [short_mom, medium_mom, long_mom]):
             avg_strength = abs(short_mom + medium_mom + long_mom) / 3
             if avg_strength > 0.1:
                 return "STRONG"
@@ -237,35 +388,140 @@ class AccumulatorStrategy:
         
         cv = (std_dev / mean) * 100  # Coefficient of variation
         
-        if cv < 0.5:
+        if cv < 0.3:
+            return "VERY_LOW"
+        elif cv < 0.5:
             return "LOW"
-        elif cv < 1.5:
+        elif cv < 1.0:
             return "MEDIUM"
         else:
             return "HIGH"
     
-    def _select_growth_rate(self, trend: str, volatility: str) -> int:
-        """Select optimal growth rate based on conditions
+    def _calculate_volatility_cv(self, prices: List[float]) -> float:
+        """Calculate coefficient of variation for volatility"""
+        if len(prices) < self.VOLATILITY_WINDOW:
+            return 1.0
         
-        Conservative approach: Lower growth rates = wider barriers = less barrier hits
-        Higher growth = more risk of barrier hit but faster accumulation
-        """
-        # Conservative strategy - prefer 1-2% for stability
-        if trend == "STRONG" and volatility == "LOW":
-            return 2  # Was 5 - too aggressive, causes frequent barrier hits
-        elif trend == "STRONG" and volatility == "MEDIUM":
-            return 2  # Was 4
-        elif trend == "STRONG" and volatility == "HIGH":
-            return 1  # Was 3
-        elif trend == "MODERATE" and volatility == "LOW":
-            return 2  # Was 3
-        elif trend == "MODERATE" and volatility == "MEDIUM":
-            return 1  # Was 2
-        else:
-            return 1  # Stay at 1% for risky conditions
+        recent = prices[-self.VOLATILITY_WINDOW:]
+        mean = sum(recent) / len(recent)
+        if mean == 0:
+            return 1.0
+        
+        variance = sum((p - mean) ** 2 for p in recent) / len(recent)
+        std_dev = math.sqrt(variance)
+        
+        return (std_dev / mean) * 100
     
-    def _calculate_confidence(self, trend: str, volatility: str) -> float:
-        """Calculate signal confidence"""
+    def _get_atr_percentile(self, current_atr: float) -> float:
+        """Get current ATR percentile compared to history"""
+        if len(self.atr_history) < 10:
+            return 50.0
+        
+        atr_list = sorted(list(self.atr_history))
+        position = sum(1 for atr in atr_list if atr <= current_atr)
+        
+        return (position / len(atr_list)) * 100
+    
+    def _calculate_barrier_distance(self, prices: List[float], atr: float) -> float:
+        """Calculate estimated distance to barrier based on recent price action"""
+        if len(prices) < 20:
+            return atr * 2
+        
+        recent = prices[-20:]
+        high = max(recent)
+        low = min(recent)
+        current = prices[-1]
+        
+        # Distance to nearest extreme (proxy for barrier)
+        dist_to_high = high - current
+        dist_to_low = current - low
+        
+        return min(dist_to_high, dist_to_low)
+    
+    def _calculate_barrier_hit_probability(self, prices: List[float], atr: float) -> float:
+        """
+        Estimate probability of hitting barrier within N ticks
+        Based on historical volatility and recent price movements
+        """
+        if len(prices) < 30:
+            return 0.5  # Uncertain
+        
+        # Calculate recent tick-to-tick changes
+        changes = []
+        for i in range(1, min(30, len(prices))):
+            change = abs(prices[-i] - prices[-i-1])
+            changes.append(change)
+        
+        if not changes:
+            return 0.5
+        
+        avg_change = sum(changes) / len(changes)
+        max_change = max(changes)
+        
+        # Barrier distance (approximated)
+        barrier_dist = atr * 1.5  # Accumulator barrier is typically 1-2x ATR
+        
+        # Simple probability based on how often max_change exceeds barrier distance
+        large_moves = sum(1 for c in changes if c > barrier_dist * 0.5)
+        prob = large_moves / len(changes)
+        
+        return min(prob, 1.0)
+    
+    def _is_good_entry_timing(self, prices: List[float]) -> bool:
+        """
+        Check if current timing is good for entry
+        Price should be moving away from potential barrier (recent high/low)
+        """
+        if len(prices) < 20:
+            return True
+        
+        recent = prices[-20:]
+        current = prices[-1]
+        prev = prices[-5]  # 5 ticks ago
+        
+        high = max(recent)
+        low = min(recent)
+        mid = (high + low) / 2
+        
+        # Check if price is in the middle zone (safer)
+        range_size = high - low
+        if range_size == 0:
+            return True
+        
+        position = (current - low) / range_size
+        
+        # Best entry when price is between 30-70% of range
+        if 0.3 <= position <= 0.7:
+            return True
+        
+        # If near extreme, check if moving away
+        if position < 0.3:  # Near low
+            return current > prev  # Should be moving up
+        else:  # Near high
+            return current < prev  # Should be moving down
+    
+    def _select_growth_rate(self, trend: str, volatility: str) -> int:
+        """
+        Select optimal growth rate - CONSERVATIVE APPROACH
+        Lower growth = wider barriers = less barrier hits
+        Always default to 1% unless conditions are perfect
+        """
+        # Only use higher rates in very stable conditions
+        if trend == "STRONG" and volatility == "VERY_LOW":
+            return 2  # Max 2% even in best conditions
+        elif trend == "STRONG" and volatility == "LOW":
+            return 1  # Stay safe
+        else:
+            return 1  # Default to safest rate
+    
+    def _calculate_confidence(
+        self, 
+        trend: str, 
+        volatility: str, 
+        barrier_prob: float,
+        atr_percentile: float
+    ) -> float:
+        """Calculate signal confidence with additional factors"""
         base = 0.50
         
         # Trend bonus
@@ -274,15 +530,35 @@ class AccumulatorStrategy:
         elif trend == "MODERATE":
             base += 0.10
         
-        # Low volatility bonus
-        if volatility == "LOW":
+        # Volatility bonus
+        if volatility == "VERY_LOW":
             base += 0.15
+        elif volatility == "LOW":
+            base += 0.10
         elif volatility == "MEDIUM":
             base += 0.05
         else:
-            base -= 0.05
+            base -= 0.10  # Penalty for high volatility
         
-        return min(base, 0.90)
+        # Barrier probability penalty
+        if barrier_prob < 0.1:
+            base += 0.10
+        elif barrier_prob < 0.2:
+            base += 0.05
+        elif barrier_prob > 0.3:
+            base -= 0.10
+        
+        # ATR percentile bonus (lower is better)
+        if atr_percentile < 30:
+            base += 0.05
+        elif atr_percentile > 70:
+            base -= 0.10
+        
+        # Consecutive loss penalty
+        if self.consecutive_losses >= 2:
+            base -= 0.10
+        
+        return max(0, min(base, 0.95))
     
     def _calculate_momentum(self, prices: List[float], window: int) -> float:
         """Calculate momentum for window"""
@@ -385,9 +661,40 @@ class AccumulatorStrategy:
             "last_price": prices[-1] if prices else 0,
             "position": self.get_position(symbol),
             "trend": self._analyze_trend(prices) if len(prices) >= self.MIN_TICKS else "N/A",
-            "volatility": self._analyze_volatility(prices) if len(prices) >= self.VOLATILITY_WINDOW else "N/A"
+            "volatility": self._analyze_volatility(prices) if len(prices) >= self.VOLATILITY_WINDOW else "N/A",
+            "consecutive_losses": self.consecutive_losses,
+            "cooldown_remaining": max(0, self._get_current_cooldown() - (time.time() - self.last_signal_time))
         }
     
     def get_all_stats(self) -> Dict[str, Dict[str, Any]]:
         """Get statistics for all symbols"""
         return {symbol: self.get_stats(symbol) for symbol in self.SUPPORTED_SYMBOLS}
+    
+    def get_trade_analysis(self) -> Dict[str, Any]:
+        """Analyze recent trade performance"""
+        if not self.trade_history:
+            return {"total": 0, "win_rate": 0, "recommendation": "Not enough data"}
+        
+        trades = list(self.trade_history)
+        wins = sum(1 for t in trades if t["result"] == "WIN")
+        total = len(trades)
+        win_rate = (wins / total) * 100 if total > 0 else 0
+        
+        # Recommendation based on performance
+        if win_rate < 40 and total >= 5:
+            recommendation = "Consider pausing - win rate too low"
+        elif self.consecutive_losses >= 3:
+            recommendation = "Consider pausing - losing streak detected"
+        elif win_rate > 60:
+            recommendation = "Strategy performing well"
+        else:
+            recommendation = "Continue with caution"
+        
+        return {
+            "total": total,
+            "wins": wins,
+            "losses": total - wins,
+            "win_rate": win_rate,
+            "consecutive_losses": self.consecutive_losses,
+            "recommendation": recommendation
+        }

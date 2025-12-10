@@ -695,21 +695,41 @@ class DerivWebSocket:
         
         return False
     
-    def unsubscribe_ticks(self, symbol: str) -> bool:
-        """Unsubscribe from tick stream"""
+    def unsubscribe_ticks(self, symbol: str, fire_and_forget: bool = True) -> bool:
+        """
+        Unsubscribe from tick stream
+        
+        Args:
+            symbol: Symbol to unsubscribe
+            fire_and_forget: If True, don't wait for response (faster shutdown)
+        """
         if symbol not in self._tick_subscriptions:
             return True
         
         sub_id = self._tick_subscriptions[symbol]
-        response = self._send_and_wait({"forget": sub_id})
+        
+        if fire_and_forget:
+            # Fire-and-forget: just send and don't wait
+            self._send({"forget": sub_id})
+            del self._tick_subscriptions[symbol]
+            self._tick_callbacks.pop(symbol, None)
+            logger.info(f"Unsubscribed from {symbol} (fire-and-forget)")
+            return True
+        
+        # Wait for response with reduced timeout (3s instead of 10s)
+        response = self._send_and_wait({"forget": sub_id}, timeout=3)
         
         if response:
             del self._tick_subscriptions[symbol]
             self._tick_callbacks.pop(symbol, None)
             logger.info(f"Unsubscribed from {symbol}")
             return True
-        
-        return False
+        else:
+            # Even if timeout, remove from tracking
+            del self._tick_subscriptions[symbol]
+            self._tick_callbacks.pop(symbol, None)
+            logger.warning(f"Unsubscribe timeout for {symbol}, but cleaned up anyway")
+            return True
     
     def get_ticks_history(self, symbol: str, count: int = 100) -> List[dict]:
         """Get historical tick data"""

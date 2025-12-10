@@ -1,20 +1,31 @@
 """
-Hybrid Money Manager - Progressive recovery system with risk management
+Hybrid Money Manager - Fibonacci-based progressive recovery system with risk management
+Enhanced with anti-martingale option and balance protection
 """
 
 import logging
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, field
-from enum import Enum
+import time
 from collections import deque
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
 
 class RiskLevel(Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
     VERY_HIGH = "VERY_HIGH"
+
+
+class RecoveryMode(Enum):
+    FIBONACCI = "FIBONACCI"      # 1, 1, 2, 3, 5, 8 - smooth recovery
+    ANTI_MARTINGALE = "ANTI_MARTINGALE"  # Decrease after loss, increase after win
+    FIXED = "FIXED"              # Always use base stake
+    PROGRESSIVE = "PROGRESSIVE"   # Old martingale-like (not recommended)
+
 
 @dataclass
 class TradeRecord:
@@ -26,6 +37,7 @@ class TradeRecord:
     balance_before: float
     balance_after: float
     timestamp: float
+
 
 @dataclass
 class SessionMetrics:
@@ -46,50 +58,87 @@ class SessionMetrics:
     deficit: float = 0.0
     recovery_level: int = 0
 
+
 class HybridMoneyManager:
     """
-    Hybrid Money Manager with Progressive Recovery
+    Hybrid Money Manager with Fibonacci-based Recovery
     
     Features:
-    - Progressive recovery system (safer than pure Martingale)
-    - Deficit tracking for gradual recovery
-    - Risk-based multipliers and max levels
-    - Capital protection limits
-    - Daily loss limit enforcement
+    - Fibonacci sequence recovery (1, 1, 2, 3, 5, 8) - smoother than martingale
+    - Anti-martingale option for conservative approach
+    - Dynamic balance protection
+    - Session loss limit with warnings at 50%, 75%
+    - Strategy-specific loss limits
+    - Maximum stake per trade = 10% of balance
+    - Real-time balance tracking
     """
+    
+    # Fibonacci sequence for recovery
+    FIBONACCI = [1, 1, 2, 3, 5, 8, 13, 21]
     
     # Risk configurations
     RISK_CONFIG = {
-        RiskLevel.LOW: {"multiplier": 1.5, "max_levels": 6},
-        RiskLevel.MEDIUM: {"multiplier": 1.8, "max_levels": 5},
-        RiskLevel.HIGH: {"multiplier": 2.1, "max_levels": 4},
-        RiskLevel.VERY_HIGH: {"multiplier": 2.5, "max_levels": 3}
+        RiskLevel.LOW: {"max_levels": 6, "max_stake_pct": 0.05},
+        RiskLevel.MEDIUM: {"max_levels": 5, "max_stake_pct": 0.08},
+        RiskLevel.HIGH: {"max_levels": 4, "max_stake_pct": 0.10},
+        RiskLevel.VERY_HIGH: {"max_levels": 3, "max_stake_pct": 0.15}
     }
+    
+    # Strategy-specific loss limits (as percentage of starting balance)
+    STRATEGY_LOSS_LIMITS = {
+        "AMT": 0.30,           # 30% for accumulator (needs more room)
+        "SNIPER": 0.15,        # 15% for sniper (more selective)
+        "TERMINAL": 0.20,      # 20% default
+        "TICK_PICKER": 0.20,
+        "DIGITPAD": 0.25,      # 25% for digit trades
+        "LDP": 0.25,
+        "MULTI_INDICATOR": 0.20,
+        "DEFAULT": 0.20
+    }
+    
+    # Warning thresholds (percentage of loss limit reached)
+    WARNING_THRESHOLDS = [0.50, 0.75, 0.90]
     
     def __init__(
         self,
         base_stake: float = 1.0,
         risk_level: RiskLevel = RiskLevel.MEDIUM,
         daily_loss_limit: float = 50.0,
-        profit_target: float = 0.0  # 0 = no target
+        profit_target: float = 0.0,
+        recovery_mode: RecoveryMode = RecoveryMode.FIBONACCI,
+        strategy_name: str = "DEFAULT"
     ):
         self.base_stake = base_stake
         self.risk_level = risk_level
         self.daily_loss_limit = daily_loss_limit
         self.profit_target = profit_target
+        self.recovery_mode = recovery_mode
+        self.strategy_name = strategy_name
         
         # Get risk config
         config = self.RISK_CONFIG[risk_level]
-        self.multiplier = config["multiplier"]
         self.max_levels = config["max_levels"]
+        self.max_stake_pct = config["max_stake_pct"]
         
         # Session state
         self.metrics: Optional[SessionMetrics] = None
         self.trade_history: deque = deque(maxlen=200)
         self.is_recovering = False
+        
+        # Warning callbacks
+        self.on_loss_warning: Optional[callable] = None
+        self.warnings_sent: List[float] = []
+        
+        # Last balance check
+        self._last_balance_check = 0
+        self._cached_balance = 0.0
+        self._balance_check_interval = 10  # seconds
     
-    def start_session(self, starting_balance: float):
+    def start_session(self, starting_balance: float, strategy_name: str = None):
         """Initialize a new trading session"""
+        if strategy_name:
+            self.strategy_name = strategy_name
+        
         self.metrics = SessionMetrics(
             starting_balance=starting_balance,
             current_balance=starting_balance,
@@ -98,64 +147,147 @@ class HybridMoneyManager:
         )
         self.trade_history.clear()
         self.is_recovering = False
+        self.warnings_sent = []
+        self._cached_balance = starting_balance
+        
+        # Calculate actual loss limit based on strategy
+        loss_limit_pct = self.STRATEGY_LOSS_LIMITS.get(
+            self.strategy_name, 
+            self.STRATEGY_LOSS_LIMITS["DEFAULT"]
+        )
+        self.session_loss_limit = starting_balance * loss_limit_pct
         
         logger.info(
             f"Session started | Balance: {starting_balance:.2f} | "
-            f"Risk: {self.risk_level.value} | Base stake: {self.base_stake:.2f}"
+            f"Risk: {self.risk_level.value} | Base stake: {self.base_stake:.2f} | "
+            f"Recovery: {self.recovery_mode.value} | "
+            f"Loss limit: {self.session_loss_limit:.2f} ({loss_limit_pct*100:.0f}%)"
         )
+    
+    def update_balance(self, current_balance: float):
+        """Update cached balance for real-time tracking"""
+        self._cached_balance = current_balance
+        self._last_balance_check = time.time()
+        
+        if self.metrics:
+            self.metrics.current_balance = current_balance
+    
+    def should_refresh_balance(self) -> bool:
+        """Check if balance should be refreshed"""
+        return time.time() - self._last_balance_check > self._balance_check_interval
     
     def calculate_stake(self) -> float:
         """
-        Calculate next stake amount
+        Calculate next stake amount using Fibonacci or Anti-Martingale
         
         Returns:
-            Recommended stake amount
+            Recommended stake amount (0 if should stop)
         """
         if not self.metrics:
             return self.base_stake
         
         balance = self.metrics.current_balance
         
-        # Check if we should stop (daily loss limit)
-        if self._check_daily_loss_exceeded():
-            logger.warning("Daily loss limit reached - stopping")
+        # Check if we should stop (session loss limit)
+        if self._check_session_loss_exceeded():
+            logger.warning("Session loss limit reached - stopping")
             return 0
         
-        # Base case: no deficit, return base stake
-        if self.metrics.deficit <= 0:
-            self.is_recovering = False
-            return min(self.base_stake, balance * 0.05)  # Max 5% of balance
+        # Check minimum balance threshold
+        min_balance_threshold = self.base_stake * 2
+        if balance < min_balance_threshold:
+            logger.warning(f"Balance ({balance:.2f}) below minimum threshold ({min_balance_threshold:.2f})")
+            return 0
         
-        # Recovery mode
-        self.is_recovering = True
-        level = self.metrics.recovery_level
+        # Calculate stake based on recovery mode
+        if self.recovery_mode == RecoveryMode.FIBONACCI:
+            stake = self._calculate_fibonacci_stake()
+        elif self.recovery_mode == RecoveryMode.ANTI_MARTINGALE:
+            stake = self._calculate_anti_martingale_stake()
+        elif self.recovery_mode == RecoveryMode.FIXED:
+            stake = self.base_stake
+        else:
+            stake = self._calculate_progressive_stake()
         
-        if level >= self.max_levels:
-            logger.warning(f"Max recovery level ({self.max_levels}) reached")
-            # Reset and use base stake
-            self.metrics.deficit = 0
-            self.metrics.recovery_level = 0
-            self.is_recovering = False
-            return min(self.base_stake, balance * 0.05)
-        
-        # Progressive recovery calculation
-        # Level 1: base * multiplier
-        # Level 2: base * multiplier^1.5
-        # Level 3: base * multiplier^2
-        exponent = 1 + (level * 0.5)
-        stake = self.base_stake * (self.multiplier ** exponent)
-        
-        # Capital protection: max 20% of balance
-        max_stake = balance * 0.20
+        # Apply max stake limit (10% of balance)
+        max_stake = balance * self.max_stake_pct
         stake = min(stake, max_stake)
         
         # Minimum stake
         stake = max(stake, 0.35)
         
+        # Final balance check
+        if stake > balance * 0.5:
+            stake = balance * 0.1  # Reduce to 10% if stake is too large
+        
+        logger.debug(f"Calculated stake: {stake:.2f} (mode: {self.recovery_mode.value})")
+        return stake
+    
+    def _calculate_fibonacci_stake(self) -> float:
+        """Calculate stake using Fibonacci sequence - smoother than martingale"""
+        if not self.metrics or self.metrics.deficit <= 0:
+            self.is_recovering = False
+            return self.base_stake
+        
+        self.is_recovering = True
+        level = min(self.metrics.recovery_level, len(self.FIBONACCI) - 1)
+        
+        if level >= self.max_levels:
+            logger.warning(f"Max Fibonacci level ({self.max_levels}) reached, resetting")
+            self.metrics.deficit = 0
+            self.metrics.recovery_level = 0
+            self.is_recovering = False
+            return self.base_stake
+        
+        # Fibonacci multiplier
+        fib_multiplier = self.FIBONACCI[level]
+        stake = self.base_stake * fib_multiplier
+        
         logger.debug(
-            f"Recovery stake: {stake:.2f} | Level: {level + 1}/{self.max_levels} | "
-            f"Deficit: {self.metrics.deficit:.2f}"
+            f"Fibonacci stake: {stake:.2f} | Level: {level + 1}/{self.max_levels} | "
+            f"Multiplier: {fib_multiplier} | Deficit: {self.metrics.deficit:.2f}"
         )
+        
+        return stake
+    
+    def _calculate_anti_martingale_stake(self) -> float:
+        """
+        Anti-Martingale: Decrease stake after loss, increase after win
+        Much safer for small balances
+        """
+        if not self.metrics:
+            return self.base_stake
+        
+        # After a win, increase slightly
+        if self.metrics.consecutive_wins > 0:
+            multiplier = min(1.0 + (self.metrics.consecutive_wins * 0.1), 1.5)
+            return self.base_stake * multiplier
+        
+        # After a loss, decrease stake
+        if self.metrics.consecutive_losses > 0:
+            multiplier = max(0.5, 1.0 - (self.metrics.consecutive_losses * 0.1))
+            return self.base_stake * multiplier
+        
+        return self.base_stake
+    
+    def _calculate_progressive_stake(self) -> float:
+        """Old progressive/martingale calculation (less recommended)"""
+        if not self.metrics or self.metrics.deficit <= 0:
+            self.is_recovering = False
+            return self.base_stake
+        
+        self.is_recovering = True
+        level = self.metrics.recovery_level
+        
+        if level >= self.max_levels:
+            self.metrics.deficit = 0
+            self.metrics.recovery_level = 0
+            self.is_recovering = False
+            return self.base_stake
+        
+        # Progressive with softer multiplier (1.5x instead of 2x)
+        exponent = 1 + (level * 0.3)
+        stake = self.base_stake * (1.5 ** exponent)
         
         return stake
     
@@ -182,7 +314,7 @@ class HybridMoneyManager:
             level=self.metrics.recovery_level,
             balance_before=balance_before,
             balance_after=balance_after,
-            timestamp=0  # Would be time.time() in production
+            timestamp=time.time()
         )
         self.trade_history.append(record)
         
@@ -202,7 +334,6 @@ class HybridMoneyManager:
             
             # Recovery success
             if self.is_recovering:
-                # Reduce deficit by profit
                 self.metrics.deficit = max(0, self.metrics.deficit - profit)
                 
                 if self.metrics.deficit <= 0:
@@ -210,8 +341,8 @@ class HybridMoneyManager:
                     self.metrics.recovery_level = 0
                     self.is_recovering = False
                 else:
-                    # Reset level but keep deficit
-                    self.metrics.recovery_level = 0
+                    # Partial recovery - reduce level but keep deficit
+                    self.metrics.recovery_level = max(0, self.metrics.recovery_level - 1)
         else:
             self.metrics.losses += 1
             self.metrics.consecutive_losses += 1
@@ -234,11 +365,71 @@ class HybridMoneyManager:
             drawdown = (self.metrics.peak_balance - balance_after) / self.metrics.peak_balance
             self.metrics.max_drawdown = max(self.metrics.max_drawdown, drawdown)
         
+        # Check for warnings
+        self._check_loss_warnings()
+        
         logger.info(
             f"Trade recorded | {'WIN' if is_win else 'LOSS'} | "
             f"Profit: {profit:+.2f} | Balance: {balance_after:.2f} | "
             f"Deficit: {self.metrics.deficit:.2f}"
         )
+    
+    def _check_session_loss_exceeded(self) -> bool:
+        """Check if session loss limit exceeded based on strategy"""
+        if not self.metrics:
+            return False
+        
+        session_loss = self.metrics.starting_balance - self.metrics.current_balance
+        return session_loss >= self.session_loss_limit
+    
+    def _check_loss_warnings(self):
+        """Check and trigger loss limit warnings"""
+        if not self.metrics or not self.on_loss_warning:
+            return
+        
+        session_loss = self.metrics.starting_balance - self.metrics.current_balance
+        if session_loss <= 0:
+            return
+        
+        loss_percentage = session_loss / self.session_loss_limit
+        
+        for threshold in self.WARNING_THRESHOLDS:
+            if loss_percentage >= threshold and threshold not in self.warnings_sent:
+                self.warnings_sent.append(threshold)
+                try:
+                    self.on_loss_warning(
+                        threshold * 100,
+                        session_loss,
+                        self.session_loss_limit,
+                        self.metrics.current_balance
+                    )
+                except Exception as e:
+                    logger.error(f"Loss warning callback error: {e}")
+    
+    def should_pause_trading(self) -> tuple:
+        """
+        Check if trading should be paused
+        
+        Returns:
+            tuple: (should_pause: bool, reason: str)
+        """
+        if not self.metrics:
+            return False, ""
+        
+        # Too many consecutive losses
+        if self.metrics.consecutive_losses >= 3:
+            return True, f"3+ consecutive losses ({self.metrics.consecutive_losses})"
+        
+        # Max drawdown exceeded
+        if self.metrics.max_drawdown > 0.25:
+            return True, f"Max drawdown exceeded ({self.metrics.max_drawdown*100:.1f}%)"
+        
+        # Near session loss limit
+        session_loss = self.metrics.starting_balance - self.metrics.current_balance
+        if session_loss >= self.session_loss_limit * 0.90:
+            return True, "Approaching session loss limit (90%)"
+        
+        return False, ""
     
     def should_take_profit(self) -> bool:
         """Check if profit target reached"""
@@ -247,17 +438,9 @@ class HybridMoneyManager:
         
         return self.metrics.total_profit >= self.profit_target
     
-    def _check_daily_loss_exceeded(self) -> bool:
-        """Check if daily loss limit exceeded"""
-        if not self.metrics:
-            return False
-        
-        session_loss = self.metrics.starting_balance - self.metrics.current_balance
-        return session_loss >= self.daily_loss_limit
-    
     def get_next_stake_preview(self, levels: int = 5) -> List[Dict[str, float]]:
         """
-        Preview next N stake levels
+        Preview next N stake levels using Fibonacci
         
         Args:
             levels: Number of levels to preview
@@ -268,14 +451,15 @@ class HybridMoneyManager:
         preview = []
         cumulative = 0
         
-        for level in range(levels):
-            exponent = 1 + (level * 0.5)
-            stake = self.base_stake * (self.multiplier ** exponent)
+        for level in range(min(levels, len(self.FIBONACCI))):
+            fib_mult = self.FIBONACCI[level]
+            stake = self.base_stake * fib_mult
             cumulative += stake
             
             preview.append({
                 "level": level + 1,
                 "stake": round(stake, 2),
+                "multiplier": fib_mult,
                 "cumulative_loss": round(cumulative, 2)
             })
         
@@ -290,6 +474,11 @@ class HybridMoneyManager:
         if self.metrics.total_trades > 0:
             win_rate = self.metrics.wins / self.metrics.total_trades * 100
         
+        session_loss = self.metrics.starting_balance - self.metrics.current_balance
+        loss_limit_pct = (session_loss / self.session_loss_limit * 100) if self.session_loss_limit > 0 else 0
+        
+        should_pause, pause_reason = self.should_pause_trading()
+        
         return {
             "starting_balance": self.metrics.starting_balance,
             "current_balance": self.metrics.current_balance,
@@ -303,18 +492,37 @@ class HybridMoneyManager:
             "max_consecutive_losses": self.metrics.max_consecutive_losses,
             "current_deficit": self.metrics.deficit,
             "recovery_level": self.metrics.recovery_level,
-            "is_recovering": self.is_recovering
+            "recovery_mode": self.recovery_mode.value,
+            "is_recovering": self.is_recovering,
+            "session_loss": session_loss,
+            "session_loss_limit": self.session_loss_limit,
+            "loss_limit_percentage": loss_limit_pct,
+            "should_pause": should_pause,
+            "pause_reason": pause_reason
         }
+    
+    def set_recovery_mode(self, mode: RecoveryMode):
+        """Update recovery mode"""
+        self.recovery_mode = mode
+        logger.info(f"Recovery mode set to: {mode.value}")
     
     def set_risk_level(self, level: RiskLevel):
         """Update risk level"""
         self.risk_level = level
         config = self.RISK_CONFIG[level]
-        self.multiplier = config["multiplier"]
         self.max_levels = config["max_levels"]
+        self.max_stake_pct = config["max_stake_pct"]
         logger.info(f"Risk level set to: {level.value}")
     
     def set_base_stake(self, stake: float):
         """Update base stake"""
         self.base_stake = max(0.35, stake)
         logger.info(f"Base stake set to: {self.base_stake:.2f}")
+    
+    def reset_recovery(self):
+        """Reset recovery state"""
+        if self.metrics:
+            self.metrics.deficit = 0
+            self.metrics.recovery_level = 0
+        self.is_recovering = False
+        logger.info("Recovery state reset")

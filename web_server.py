@@ -21,6 +21,8 @@ import uvicorn
 import threading
 
 from trading import TradingManager, TradingConfig, TradingState, StrategyType
+from performance_monitor import performance_monitor
+from user_preferences import user_preferences
 
 logger = logging.getLogger(__name__)
 
@@ -577,6 +579,7 @@ async def startup_event():
     logger.info("Starting web server...")
     _main_event_loop = asyncio.get_running_loop()
     await manager.start_heartbeat()
+    performance_monitor.start()
     logger.info("Web server started successfully")
 
 
@@ -585,6 +588,7 @@ async def shutdown_event():
     """Clean up on server shutdown"""
     logger.info("Shutting down web server...")
     await manager.stop_heartbeat()
+    performance_monitor.stop()
     clear_all_trading_state()
     logger.info("Web server shutdown complete")
 
@@ -665,6 +669,68 @@ async def serve_sniper():
             return HTMLResponse(content=f.read(), headers={"Cache-Control": "no-cache"})
     except FileNotFoundError:
         return HTMLResponse(content="<h1>Sniper not found</h1>", status_code=404)
+
+
+@app.get("/api/metrics")
+async def get_metrics():
+    """
+    Get performance metrics for monitoring
+    
+    Returns:
+        JSON with current performance metrics including:
+        - Tick processing time
+        - WebSocket latency
+        - Trade execution time
+        - Memory usage
+        - Error rate
+        - Health status
+    """
+    return JSONResponse(content=performance_monitor.get_metrics_json())
+
+
+@app.get("/api/metrics/summary")
+async def get_metrics_summary():
+    """Get simplified performance metrics summary"""
+    return JSONResponse(content=performance_monitor.get_summary())
+
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint"""
+    metrics = performance_monitor.get_metrics()
+    return JSONResponse(content={
+        "status": "healthy" if metrics.is_healthy else "degraded",
+        "uptime_seconds": performance_monitor.get_summary().get("uptime_minutes", 0) * 60,
+        "active_connections": len(manager.active_connections),
+        "active_traders": len(trading_managers)
+    })
+
+
+@app.get("/api/user/{telegram_id}/preferences")
+async def get_user_preferences(telegram_id: int):
+    """Get user preferences"""
+    prefs = user_preferences.get(telegram_id)
+    return JSONResponse(content=prefs.to_dict())
+
+
+@app.post("/api/user/{telegram_id}/preferences")
+async def update_user_preferences(telegram_id: int, request: Request):
+    """Update user preferences"""
+    try:
+        data = await request.json()
+        prefs = user_preferences.update(telegram_id, **data)
+        return JSONResponse(content={"success": True, "preferences": prefs.to_dict()})
+    except Exception as e:
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=400)
+
+
+@app.get("/api/user/{telegram_id}/last-session")
+async def get_last_session_config(telegram_id: int):
+    """Get last session configuration for restore"""
+    config = user_preferences.get_last_session_config(telegram_id)
+    return JSONResponse(content=config)
+
+
 
 
 # ==================== Telegram WebApp Auth ====================

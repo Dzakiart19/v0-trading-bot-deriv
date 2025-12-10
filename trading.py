@@ -23,9 +23,12 @@ from tick_picker_strategy import TickPickerStrategy, TickPickerSignal
 from digitpad_strategy import DigitPadStrategy, DigitSignal
 from sniper_strategy import SniperStrategy, SniperSignal
 from entry_filter import EntryFilter, RiskLevel, FilterResult
-from hybrid_money_manager import HybridMoneyManager, RiskLevel as MMRiskLevel
+from hybrid_money_manager import HybridMoneyManager, RiskLevel as MMRiskLevel, RecoveryMode
 from analytics import TradingAnalytics, TradeEntry
 from symbols import get_symbol_config, get_default_duration, validate_duration_for_symbol
+from trade_analyzer import TradeHistoryAnalyzer
+from performance_monitor import performance_monitor
+from user_preferences import user_preferences
 
 logger = logging.getLogger(__name__)
 
@@ -73,14 +76,28 @@ class TradingManager:
     - Fully automatic trading - user only stops
     - Session management with configurable targets
     - Multi-strategy support
-    - Adaptive Martingale System
+    - Fibonacci-based recovery system
     - Real-time position tracking
     - Trade journaling and analytics
     - Session recovery from crashes
+    - Dynamic session loss limit calculation
+    - Trade history analysis and pattern detection
+    - Performance monitoring
     """
     
     RECOVERY_FILE = "logs/session_recovery.json"
-    MAX_SESSION_LOSS_PCT = 0.20  # 20% of balance
+    
+    # Strategy-specific loss limits (percentage of starting balance)
+    STRATEGY_LOSS_LIMITS = {
+        "AMT": 0.30,           # 30% for accumulator (needs more room)
+        "SNIPER": 0.15,        # 15% for sniper (more selective)
+        "TERMINAL": 0.20,      # 20% default
+        "TICK_PICKER": 0.20,
+        "DIGITPAD": 0.25,      # 25% for digit trades
+        "LDP": 0.25,
+        "MULTI_INDICATOR": 0.20,
+    }
+    DEFAULT_SESSION_LOSS_PCT = 0.20  # 20% default
     
     def __init__(self, ws: DerivWebSocket, config: Optional[TradingConfig] = None):
         self.ws = ws
@@ -90,8 +107,15 @@ class TradingManager:
         # Strategy instances
         self.strategy = None
         self.entry_filter = EntryFilter()
-        self.money_manager = HybridMoneyManager()
+        self.money_manager = HybridMoneyManager(recovery_mode=RecoveryMode.FIBONACCI)
         self.analytics = TradingAnalytics()
+        self.trade_analyzer = TradeHistoryAnalyzer()
+        
+        # Dynamic session loss limit
+        self.session_loss_limit = 0.0
+        
+        # Loss warning callback
+        self.on_loss_warning: Optional[Callable] = None
         
         # Session state
         self.session_trades = 0
@@ -551,14 +575,60 @@ class TradingManager:
             self.stop()
             return
         
-        # Check session loss limit
+        # Check session loss limit - dynamically calculated
         current_balance = self.ws.get_balance()
         session_loss = self.starting_balance - current_balance
-        max_loss = self.starting_balance * self.MAX_SESSION_LOSS_PCT
+        
+        # Calculate dynamic loss limit based on strategy
+        strategy_name = self.config.strategy.value if self.config else "MULTI_INDICATOR"
+        loss_pct = self.STRATEGY_LOSS_LIMITS.get(strategy_name, self.DEFAULT_SESSION_LOSS_PCT)
+        max_loss = self.starting_balance * loss_pct
+        self.session_loss_limit = max_loss
+        
+        # Send warnings at 50%, 75%, 90%
+        loss_percentage = session_loss / max_loss if max_loss > 0 else 0
+        if loss_percentage >= 0.90 and not hasattr(self, '_warned_90'):
+            self._warned_90 = True
+            if self.on_loss_warning:
+                self.on_loss_warning(90, session_loss, max_loss, current_balance)
+            if self.on_progress:
+                self.on_progress({
+                    "type": "loss_warning",
+                    "message": f"⚠️ PERINGATAN: 90% dari batas loss tercapai (${session_loss:.2f}/${max_loss:.2f})"
+                })
+        elif loss_percentage >= 0.75 and not hasattr(self, '_warned_75'):
+            self._warned_75 = True
+            if self.on_loss_warning:
+                self.on_loss_warning(75, session_loss, max_loss, current_balance)
+            if self.on_progress:
+                self.on_progress({
+                    "type": "loss_warning",
+                    "message": f"⚠️ Peringatan: 75% dari batas loss tercapai (${session_loss:.2f}/${max_loss:.2f})"
+                })
+        elif loss_percentage >= 0.50 and not hasattr(self, '_warned_50'):
+            self._warned_50 = True
+            if self.on_loss_warning:
+                self.on_loss_warning(50, session_loss, max_loss, current_balance)
         
         if session_loss >= max_loss:
-            logger.warning(f"Session loss limit reached: {session_loss:.2f}")
+            logger.warning(f"Session loss limit reached: {session_loss:.2f} >= {max_loss:.2f} ({loss_pct*100:.0f}% of balance)")
+            if self.on_progress:
+                self.on_progress({
+                    "type": "session_stopped",
+                    "message": f"🛑 Sesi dihentikan: Batas loss {loss_pct*100:.0f}% tercapai (${session_loss:.2f})"
+                })
             self.stop()
+            return
+        
+        # Check trade analyzer for losing streak
+        should_pause, pause_reason = self.trade_analyzer.should_pause()
+        if should_pause:
+            logger.warning(f"Trade analyzer recommends pause: {pause_reason}")
+            if self.on_progress:
+                self.on_progress({
+                    "type": "pause_recommended",
+                    "message": f"⏸️ Direkomendasikan jeda: {pause_reason}"
+                })
             return
         
         # Build market context for entry filter
@@ -594,38 +664,38 @@ class TradingManager:
         self._execute_trade(signal, stake)
     
     def _calculate_stake(self, filter_result: FilterResult) -> float:
-        """Calculate stake amount"""
+        """
+        Calculate stake amount using HybridMoneyManager (Fibonacci-based recovery)
+        
+        NOTE: HybridMoneyManager handles all recovery logic (Fibonacci/Anti-Martingale)
+        We only apply filter adjustments here, no more 2x martingale override
+        """
+        # Get stake from money manager (uses Fibonacci or configured recovery mode)
         base_stake = self.money_manager.calculate_stake()
         
         if base_stake <= 0:
             return 0
         
-        # Apply filter adjustments
+        # Apply filter adjustments only
         if "stake_reduction" in filter_result.adjustments:
             base_stake *= filter_result.adjustments["stake_reduction"]
         elif "stake_increase" in filter_result.adjustments:
             base_stake *= filter_result.adjustments["stake_increase"]
         
-        # Martingale adjustment if enabled
-        if self.config and self.config.use_martingale and self.martingale_level > 0:
-            multiplier = 2.0 ** self.martingale_level
-            base_stake = self.martingale_base_stake * multiplier
-        
-        # Ensure within limits
+        # Ensure within limits (10% max as per requirements)
         balance = self.ws.get_balance()
-        max_stake = balance * 0.20  # Max 20% of balance
+        max_stake = balance * 0.10  # Max 10% of balance (reduced from 20%)
         base_stake = min(base_stake, max_stake)
         base_stake = max(base_stake, 0.35)  # Min stake
         
         return base_stake
     
     def _calculate_next_stake(self) -> float:
-        """Calculate next stake for display"""
+        """Calculate next stake for display using money manager"""
         if not self.config:
             return 1.0
-        if self.config.use_martingale and self.martingale_level > 0:
-            return self.config.base_stake * (2.0 ** self.martingale_level)
-        return self.config.base_stake
+        # Use money manager for next stake calculation (Fibonacci-based)
+        return self.money_manager.calculate_stake()
     
     def _execute_trade(self, signal, stake: float):
         """Execute a trade in a separate thread to avoid blocking WebSocket"""
@@ -960,18 +1030,22 @@ class TradingManager:
             self.session_trades += 1
             self.session_profit += profit
             
-            if profit > 0:
+            is_win = profit > 0
+            
+            if is_win:
                 self.session_wins += 1
-                # Reset martingale on win
-                self.martingale_level = 0
-                self.cumulative_loss = 0
             else:
                 self.session_losses += 1
-                # Increase martingale on loss
-                if self.config.use_martingale:
-                    self.cumulative_loss += abs(profit)
-                    if self.martingale_level < self.config.max_martingale_level:
-                        self.martingale_level += 1
+            
+            # Record in trade analyzer for pattern detection and pause recommendations
+            strategy_name = self.config.strategy.value if self.config else "UNKNOWN"
+            self.trade_analyzer.record_trade(
+                strategy=strategy_name,
+                is_win=is_win,
+                profit=profit,
+                entry_price=float(contract.get("entry_spot", 0)),
+                exit_price=float(contract.get("exit_tick", 0))
+            )
             
             # Get balance after
             balance_after = self.ws.get_balance() if self.ws else balance_before + profit
