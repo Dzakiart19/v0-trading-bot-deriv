@@ -43,7 +43,7 @@ def get_webapp_manager():
 # Strategy configurations with WebApp routes
 STRATEGIES = {
     "TERMINAL": {
-        "name": "Terminal",
+        "name": "Terminal Pro",
         "icon": "⚡",
         "description": "Smart Analysis 80% Probability",
         "webapp_route": "/terminal"
@@ -76,13 +76,19 @@ STRATEGIES = {
         "name": "LDP Analyzer",
         "icon": "🎲",
         "description": "Last Digit Prediction",
-        "webapp_route": "/digitpad"
+        "webapp_route": "/ldp"
     },
     "MULTI_INDICATOR": {
         "name": "Multi-Indicator",
         "icon": "📉",
         "description": "RSI, EMA, MACD, Stochastic, ADX",
-        "webapp_route": "/terminal"
+        "webapp_route": "/multi-indicator"
+    },
+    "TICK_ANALYZER": {
+        "name": "Tick Analyzer",
+        "icon": "📊",
+        "description": "Tick Pattern Analysis",
+        "webapp_route": "/tick-picker"
     }
 }
 

@@ -1,1 +1,1 @@
-{"config": {"symbol": "R_100", "strategy": "DIGITPAD", "base_stake": 1.0, "use_martingale": true}, "session": {"trades": 2, "wins": 2, "losses": 0, "profit": 0.17999999999999972, "starting_balance": 10.83, "martingale_level": 0}, "timestamp": "2025-12-10T08:17:42.562222"}
+{"config": {"symbol": "R_100", "strategy": "MULTI_INDICATOR", "base_stake": 1.0, "use_martingale": true}, "session": {"trades": 2, "wins": 0, "losses": 2, "profit": -2.14, "starting_balance": 11.71, "martingale_level": 0}, "timestamp": "2025-12-10T08:30:12.711597"}

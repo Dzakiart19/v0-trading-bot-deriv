@@ -78,8 +78,8 @@ class TerminalStrategy:
         RiskLevel.VERY_HIGH: {"multiplier": 2.5, "max_levels": 3}
     }
     
-    MIN_CONFIDENCE = 0.30  # Lowered drastically for more frequent signals
-    MIN_TICKS = 15  # Reduced for faster warmup
+    MIN_CONFIDENCE = 0.15  # Lowered for more frequent signals
+    MIN_TICKS = 10  # Fast warmup
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
@@ -100,7 +100,7 @@ class TerminalStrategy:
         # Signal history
         self.signals: deque = deque(maxlen=100)
         self.last_signal_time = 0
-        self.signal_cooldown = 2  # seconds (reduced from 3 for faster trading)
+        self.signal_cooldown = 1  # seconds - fast trading
     
     def add_tick(self, tick: Dict[str, Any]) -> Optional[TerminalSignal]:
         """Add new tick data and analyze for signals"""
@@ -180,15 +180,15 @@ class TerminalStrategy:
         """Calculate scores for each indicator"""
         scores = {}
         
-        # RSI Analysis - RELAXED for more signals
+        # RSI Analysis - Clear overbought/oversold zones
         rsi = self.indicators.calculate_rsi(self.prices, 14)
         if rsi is not None:
-            if rsi < 45:  # Expanded from 30
-                scores["rsi"] = {"value": rsi, "signal": "BUY", "strength": max(0.3, (45 - rsi) / 45)}
-            elif rsi > 55:  # Lowered from 70
-                scores["rsi"] = {"value": rsi, "signal": "SELL", "strength": max(0.3, (rsi - 55) / 45)}
+            if rsi < 35:  # Oversold zone
+                scores["rsi"] = {"value": rsi, "signal": "BUY", "strength": min(1.0, (35 - rsi) / 35 + 0.5)}
+            elif rsi > 65:  # Overbought zone
+                scores["rsi"] = {"value": rsi, "signal": "SELL", "strength": min(1.0, (rsi - 65) / 35 + 0.5)}
             else:
-                scores["rsi"] = {"value": rsi, "signal": "NEUTRAL", "strength": 0.1}
+                scores["rsi"] = {"value": rsi, "signal": "NEUTRAL", "strength": 0.3}
         
         # EMA Crossover
         ema_9 = self.indicators.calculate_ema(self.prices, 9)
@@ -214,15 +214,15 @@ class TerminalStrategy:
             else:
                 scores["macd"] = {"value": histogram, "signal": "NEUTRAL", "strength": 0}
         
-        # Stochastic - RELAXED for more signals
+        # Stochastic - Clear oversold/overbought zones
         stoch = self.indicators.calculate_stochastic(self.prices, 14)
         if stoch is not None:
-            if stoch < 45:  # Expanded from 20
-                scores["stochastic"] = {"value": stoch, "signal": "BUY", "strength": max(0.3, (45 - stoch) / 45)}
-            elif stoch > 55:  # Lowered from 80
-                scores["stochastic"] = {"value": stoch, "signal": "SELL", "strength": max(0.3, (stoch - 55) / 45)}
+            if stoch < 30:  # Oversold zone
+                scores["stochastic"] = {"value": stoch, "signal": "BUY", "strength": min(1.0, (30 - stoch) / 30 + 0.5)}
+            elif stoch > 70:  # Overbought zone
+                scores["stochastic"] = {"value": stoch, "signal": "SELL", "strength": min(1.0, (stoch - 70) / 30 + 0.5)}
             else:
-                scores["stochastic"] = {"value": stoch, "signal": "NEUTRAL", "strength": 0.1}
+                scores["stochastic"] = {"value": stoch, "signal": "NEUTRAL", "strength": 0.3}
         
         # ADX (Trend Strength)
         adx = self.indicators.calculate_adx(self.prices, 14)

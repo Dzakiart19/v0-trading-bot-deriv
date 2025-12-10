@@ -670,6 +670,24 @@ async def serve_sniper():
     except FileNotFoundError:
         return HTMLResponse(content="<h1>Sniper not found</h1>", status_code=404)
 
+@app.get("/multi-indicator", response_class=HTMLResponse)
+async def serve_multi_indicator():
+    """Serve Multi-Indicator strategy page"""
+    try:
+        with open("webapps/multi-indicator.html", "r") as f:
+            return HTMLResponse(content=f.read(), headers={"Cache-Control": "no-cache"})
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Multi-Indicator not found</h1>", status_code=404)
+
+@app.get("/ldp", response_class=HTMLResponse)
+async def serve_ldp():
+    """Serve LDP Analyzer strategy page"""
+    try:
+        with open("webapps/ldp.html", "r") as f:
+            return HTMLResponse(content=f.read(), headers={"Cache-Control": "no-cache"})
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>LDP Analyzer not found</h1>", status_code=404)
+
 
 @app.get("/api/metrics")
 async def get_metrics():
