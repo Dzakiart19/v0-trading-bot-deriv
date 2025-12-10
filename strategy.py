@@ -47,10 +47,10 @@ class MultiIndicatorStrategy:
     
     # Configuration
     RSI_PERIOD = 14
-    RSI_OVERSOLD_LOW = 22
-    RSI_OVERSOLD_HIGH = 30
-    RSI_OVERBOUGHT_LOW = 70
-    RSI_OVERBOUGHT_HIGH = 78
+    RSI_OVERSOLD_LOW = 20
+    RSI_OVERSOLD_HIGH = 40  # Expanded from 30 for more signals
+    RSI_OVERBOUGHT_LOW = 60  # Lowered from 70 for more signals
+    RSI_OVERBOUGHT_HIGH = 80
     
     EMA_FAST = 9
     EMA_SLOW = 21
@@ -60,19 +60,19 @@ class MultiIndicatorStrategy:
     MACD_SIGNAL = 9
     
     STOCH_PERIOD = 14
-    STOCH_OVERSOLD = 20
-    STOCH_OVERBOUGHT = 80
+    STOCH_OVERSOLD = 30  # Raised from 20 for more signals
+    STOCH_OVERBOUGHT = 70  # Lowered from 80 for more signals
     
     ADX_PERIOD = 14
-    ADX_STRONG = 22
-    ADX_MODERATE = 18
-    ADX_WEAK = 12
+    ADX_STRONG = 18  # Lowered from 22 for more signals
+    ADX_MODERATE = 12  # Lowered from 18 for more signals
+    ADX_WEAK = 8
     
     ATR_PERIOD = 14
     
-    MIN_CONFLUENCE = 25  # Lowered from 40 for more signals
-    MIN_CONFIDENCE = 0.40  # Lowered from 0.55 for more signals
-    SIGNAL_COOLDOWN = 5  # Reduced from 12 seconds for faster testing
+    MIN_CONFLUENCE = 15  # Lowered from 25 for more signals
+    MIN_CONFIDENCE = 0.30  # Lowered from 0.40 for more signals
+    SIGNAL_COOLDOWN = 3  # Reduced from 5 seconds for faster testing
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
