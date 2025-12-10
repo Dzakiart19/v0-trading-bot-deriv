@@ -57,6 +57,14 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
 
 ## Recent Changes
+- 2025-12-10: **Authorization Retry Mechanism** - Fixed login timeout issues:
+  - `deriv_ws.py authorize()`: Added 3-attempt retry with exponential backoff (2s, 4s delays)
+  - Pre-authorization ping test to verify connection stability
+  - Token format validation (minimum 10 characters)
+  - All error messages now in Indonesian for better UX
+  - Timeout reduced from 30s to 20s per attempt for faster feedback
+  - `telegram_bot.py _connect_deriv()`: Connection retry loop with async sleep
+  - Added `_get_detailed_error_message()` helper for actionable error messages
 - 2025-12-10: **NEW WebApps** - Added multi-indicator.html and ldp.html with full JavaScript functionality
 - 2025-12-10: **Routes Added** - Added /multi-indicator and /ldp routes to web_server.py
 - 2025-12-10: **Terminal Strategy Fix** - RSI thresholds corrected to 35/65 (oversold/overbought), Stochastic to 30/70
