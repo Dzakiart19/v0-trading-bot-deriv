@@ -55,6 +55,9 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
 
 ## Recent Changes
+- 2025-12-10: **FIX - Entry Price = 0 Bug** - Added fallback chain for entry_price: entry_spot → entry_tick_price → buy_price to ensure analytics always have valid entry price
+- 2025-12-10: **Enhanced Logging** - Added comprehensive emoji-based logging throughout trade flow (_on_tick, _process_signal, _execute_trade_worker) for easier debugging
+- 2025-12-10: **Error Handling** - Added try-except wrappers in signal processing to catch and log errors without crashing the bot
 - 2025-12-10: **MAJOR FIX - Fibonacci Recovery** - Replaced aggressive 2x Martingale with Fibonacci sequence (1,1,2,3,5,8,13,21) for stake recovery
 - 2025-12-10: **Trade History Analyzer** - Added pattern detection and auto-pause after 3+ consecutive losses
 - 2025-12-10: **Performance Monitor** - Real-time metrics tracking with /api/metrics endpoint
