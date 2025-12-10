@@ -1354,17 +1354,27 @@ Klik tombol di bawah untuk mulai trading:
     
     # ==================== Deriv Connection ====================
     
-    async def _connect_deriv(self, user_id: int) -> tuple:
+    async def _connect_deriv(self, user_id: int, notify_callback=None) -> tuple:
         """
-        Connect to Deriv WebSocket
+        Connect to Deriv WebSocket with retry mechanism and notifications
+        
+        Args:
+            user_id: Telegram user ID
+            notify_callback: Optional async callback for retry notifications
         
         Returns:
             tuple: (success: bool, error_message: Optional[str])
         """
+        max_connection_retries = 3
+        
         try:
             token = user_auth.get_token(user_id)
             if not token:
                 return False, "Token tidak ditemukan. Silakan login ulang."
+            
+            # Validate token format
+            if len(token) < 10:
+                return False, "Format token tidak valid. Token terlalu pendek."
             
             # Close existing connection if any
             if user_id in self._ws_connections:
@@ -1373,53 +1383,114 @@ Klik tombol di bawah untuk mulai trading:
                 except:
                     pass
             
-            # Create WebSocket connection
-            ws = DerivWebSocket()
+            # Connection retry loop
+            for conn_attempt in range(1, max_connection_retries + 1):
+                try:
+                    logger.info(f"Connection attempt {conn_attempt}/{max_connection_retries} for user {user_id}")
+                    
+                    # Create WebSocket connection
+                    ws = DerivWebSocket()
+                    
+                    # Connect to WebSocket with reduced timeout
+                    if not ws.connect(timeout=10):
+                        logger.warning(f"WebSocket connect failed (attempt {conn_attempt})")
+                        if conn_attempt < max_connection_retries:
+                            wait_time = 2 ** conn_attempt
+                            logger.info(f"Retrying connection in {wait_time}s...")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            return False, "Gagal terhubung ke server Deriv setelah beberapa percobaan."
+                    
+                    logger.info(f"WebSocket connected for user {user_id}")
+                    
+                    # Authorize with token (has built-in retry mechanism)
+                    success, error_msg = ws.authorize(token, timeout=20, max_retries=3)
+                    
+                    if not success:
+                        logger.error(f"Failed to authorize for user {user_id}: {error_msg}")
+                        ws.disconnect()
+                        
+                        # Check if it's a token error (no retry needed)
+                        if error_msg and ("tidak valid" in error_msg.lower() or "invalid" in error_msg.lower()):
+                            user_auth.clear_invalid_session(user_id)
+                            return False, error_msg
+                        
+                        # For timeout errors, retry connection
+                        if conn_attempt < max_connection_retries:
+                            wait_time = 2 ** conn_attempt
+                            logger.info(f"Retrying full connection in {wait_time}s...")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            user_auth.clear_invalid_session(user_id)
+                            return False, error_msg
+                    
+                    # Store connection
+                    self._ws_connections[user_id] = ws
+                    
+                    # Register with web server and sync to session_manager
+                    try:
+                        from web_server import register_deriv_connection, session_manager
+                        register_deriv_connection(user_id, ws)
+                        
+                        # Sync Deriv token to session_manager for WebApp auto-connect
+                        session_manager.set_deriv_token(user_id, token)
+                        
+                        # Sync account info
+                        account_data = {
+                            "balance": ws.get_balance() if hasattr(ws, 'get_balance') else 0,
+                            "currency": ws.get_currency() if hasattr(ws, 'get_currency') else "USD",
+                            "loginid": ws.loginid if hasattr(ws, 'loginid') else "",
+                            "account_type": ws.account_type if hasattr(ws, 'account_type') else "demo"
+                        }
+                        session_manager.set_deriv_account(user_id, account_data)
+                        logger.info(f"Synced Deriv token and account to session_manager for user {user_id}")
+                    except Exception as sync_error:
+                        logger.error(f"Failed to sync to session_manager: {sync_error}")
+                    
+                    logger.info(f"User {user_id} connected to Deriv successfully")
+                    return True, None
+                    
+                except Exception as e:
+                    logger.error(f"Connection attempt {conn_attempt} error: {e}")
+                    if conn_attempt < max_connection_retries:
+                        wait_time = 2 ** conn_attempt
+                        await asyncio.sleep(wait_time)
+                    else:
+                        return False, f"Kesalahan koneksi setelah beberapa percobaan: {str(e)}"
             
-            # Connect to WebSocket
-            if not ws.connect():
-                logger.error(f"Failed to connect WebSocket for user {user_id}")
-                return False, "Gagal terhubung ke server Deriv. Silakan coba lagi."
-            
-            # Authorize with token
-            success, error_msg = ws.authorize(token)
-            
-            if not success:
-                logger.error(f"Failed to authorize for user {user_id}: {error_msg}")
-                ws.disconnect()
-                # Clear invalid session
-                user_auth.clear_invalid_session(user_id)
-                return False, error_msg
-            
-            # Store connection
-            self._ws_connections[user_id] = ws
-            
-            # Register with web server and sync to session_manager
-            try:
-                from web_server import register_deriv_connection, session_manager
-                register_deriv_connection(user_id, ws)
-                
-                # Sync Deriv token to session_manager for WebApp auto-connect
-                session_manager.set_deriv_token(user_id, token)
-                
-                # Sync account info
-                account_data = {
-                    "balance": ws.get_balance() if hasattr(ws, 'get_balance') else 0,
-                    "currency": ws.get_currency() if hasattr(ws, 'get_currency') else "USD",
-                    "loginid": ws.loginid if hasattr(ws, 'loginid') else "",
-                    "account_type": ws.account_type if hasattr(ws, 'account_type') else "demo"
-                }
-                session_manager.set_deriv_account(user_id, account_data)
-                logger.info(f"Synced Deriv token and account to session_manager for user {user_id}")
-            except Exception as sync_error:
-                logger.error(f"Failed to sync to session_manager: {sync_error}")
-            
-            logger.info(f"User {user_id} connected to Deriv successfully")
-            return True, None
+            return False, "Gagal terhubung setelah beberapa percobaan"
             
         except Exception as e:
             logger.error(f"Error connecting to Deriv for user {user_id}: {e}")
             return False, f"Kesalahan koneksi: {str(e)}"
+    
+    def _get_detailed_error_message(self, error) -> str:
+        """Get detailed and actionable error message"""
+        error_str = str(error).lower()
+        
+        if "timeout" in error_str:
+            return (
+                "Connection timeout - kemungkinan:\n"
+                "1. Koneksi internet lambat\n"
+                "2. Server Deriv sedang sibuk\n"
+                "3. Token tidak valid\n\n"
+                "Solusi:\n"
+                "- Cek koneksi internet\n"
+                "- Generate token baru di Deriv\n"
+                "- Coba lagi beberapa saat"
+            )
+        elif "invalid" in error_str or "tidak valid" in error_str:
+            return "Token tidak valid. Silakan generate token baru di Deriv."
+        elif "expired" in error_str or "kadaluarsa" in error_str:
+            return "Token sudah kadaluarsa. Silakan generate token baru di Deriv."
+        elif "permission" in error_str or "izin" in error_str:
+            return "Token tidak memiliki izin yang cukup. Pastikan token memiliki izin 'trade' dan 'read'."
+        elif "rate" in error_str:
+            return "Terlalu banyak permintaan. Silakan tunggu beberapa menit."
+        else:
+            return f"Error: {str(error)}"
     
     # ==================== Trading ====================
     

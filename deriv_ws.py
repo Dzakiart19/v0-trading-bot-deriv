@@ -617,50 +617,124 @@ class DerivWebSocket:
         self.connected = False
         self.authorized = False
     
-    def authorize(self, token: str, timeout: float = 30) -> tuple:
+    def authorize(self, token: str, timeout: float = 20, max_retries: int = 3) -> tuple:
         """
-        Authorize with Deriv API token
+        Authorize with Deriv API token with retry mechanism
+        
+        Args:
+            token: Deriv API token
+            timeout: Timeout per attempt (default 20s)
+            max_retries: Number of retry attempts (default 3)
         
         Returns:
             tuple: (success: bool, error_message: Optional[str])
         """
         if not self.connected:
-            return False, "WebSocket not connected"
+            return False, "WebSocket tidak terhubung. Silakan coba lagi."
+        
+        # Pre-check: validate token format
+        if not token or len(token) < 10:
+            error_msg = "Format token tidak valid. Token terlalu pendek."
+            logger.error(error_msg)
+            return False, error_msg
         
         self.token = token
         self._last_auth_error = None
         
-        logger.info("Sending authorization request...")
-        response = self._send_and_wait({"authorize": token}, timeout=timeout)
+        # Retry loop with exponential backoff
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(f"Authorization attempt {attempt}/{max_retries}...")
+                
+                # Pre-check: ping test to verify connection
+                ping_start = time.time()
+                ping_resp = self._send_and_wait({"ping": 1}, timeout=5.0)
+                if not ping_resp:
+                    logger.warning(f"Attempt {attempt}: Ping test failed, connection may be unstable")
+                    if attempt < max_retries:
+                        wait_time = 2 ** attempt  # Exponential backoff: 2s, 4s, 8s
+                        logger.info(f"Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        error_msg = "Koneksi tidak stabil. Ping test gagal setelah beberapa percobaan."
+                        self._reset_state()
+                        return False, error_msg
+                
+                ping_rtt = time.time() - ping_start
+                logger.info(f"Ping OK (RTT: {ping_rtt:.2f}s)")
+                
+                # Send authorization request
+                auth_start = time.time()
+                response = self._send_and_wait({"authorize": token}, timeout=timeout)
+                auth_time = time.time() - auth_start
+                
+                if response is None:
+                    logger.warning(f"Attempt {attempt}/{max_retries}: Authorization timeout after {auth_time:.1f}s")
+                    if attempt < max_retries:
+                        wait_time = 2 ** attempt  # Exponential backoff: 2s, 4s, 8s
+                        logger.info(f"Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        error_msg = (
+                            "Authorization timeout setelah beberapa percobaan.\n\n"
+                            "Kemungkinan penyebab:\n"
+                            "1. Koneksi internet lambat\n"
+                            "2. Server Deriv sedang sibuk\n"
+                            "3. Token tidak valid\n\n"
+                            "Solusi:\n"
+                            "- Cek koneksi internet Anda\n"
+                            "- Generate token baru di Deriv\n"
+                            "- Coba lagi beberapa saat"
+                        )
+                        logger.error(f"All {max_retries} authorization attempts failed")
+                        self._last_auth_error = error_msg
+                        self._reset_state()
+                        return False, error_msg
+                
+                # Handle error response
+                if "error" in response:
+                    error = response["error"]
+                    error_code = error.get("code", "UNKNOWN")
+                    error_msg = error.get("message", "Unknown error")
+                    
+                    # Translate common error codes
+                    if error_code == "InvalidToken":
+                        error_msg = "Token tidak valid atau sudah kadaluarsa. Silakan buat token baru di https://app.deriv.com/account/api-token"
+                    elif error_code == "AuthorizationRequired":
+                        error_msg = "Token tidak memiliki izin yang cukup. Pastikan token memiliki izin 'trade' dan 'read'."
+                    elif error_code == "RateLimit":
+                        error_msg = "Terlalu banyak permintaan. Silakan tunggu beberapa menit."
+                    
+                    logger.error(f"Authorization failed: [{error_code}] {error_msg}")
+                    self._last_auth_error = error_msg
+                    self._reset_state()
+                    return False, error_msg
+                
+                # Success
+                if "authorize" in response:
+                    logger.info(f"Authorization successful (attempt {attempt}, time: {auth_time:.2f}s)")
+                    return True, None
+                
+                error_msg = "Response tidak dikenali dari server Deriv"
+                logger.error(error_msg)
+                self._reset_state()
+                return False, error_msg
+                
+            except Exception as e:
+                logger.error(f"Attempt {attempt}: Exception during authorization: {e}")
+                if attempt < max_retries:
+                    wait_time = 2 ** attempt
+                    logger.info(f"Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    error_msg = f"Kesalahan koneksi: {str(e)}"
+                    self._last_auth_error = error_msg
+                    self._reset_state()
+                    return False, error_msg
         
-        if response is None:
-            error_msg = "Authorization request timed out. Please check your internet connection."
-            logger.error(error_msg)
-            self._reset_state()
-            return False, error_msg
-        
-        if "error" in response:
-            error = response["error"]
-            error_code = error.get("code", "UNKNOWN")
-            error_msg = error.get("message", "Unknown error")
-            
-            # Translate common error codes
-            if error_code == "InvalidToken":
-                error_msg = "Token tidak valid atau sudah kadaluarsa. Silakan buat token baru di https://app.deriv.com/account/api-token"
-            elif error_code == "AuthorizationRequired":
-                error_msg = "Token tidak memiliki izin yang cukup. Pastikan token memiliki izin 'trade' dan 'read'."
-            
-            logger.error(f"Authorization failed: [{error_code}] {error_msg}")
-            self._last_auth_error = error_msg
-            self._reset_state()
-            return False, error_msg
-        
-        if "authorize" in response:
-            logger.info("Authorization successful")
-            return True, None
-        
-        error_msg = "Response tidak dikenali dari server Deriv"
-        logger.error(error_msg)
+        error_msg = "Authorization gagal setelah beberapa percobaan"
         self._reset_state()
         return False, error_msg
     
