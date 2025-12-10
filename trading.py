@@ -519,149 +519,170 @@ class TradingManager:
     
     def _on_tick(self, tick: Dict[str, Any]):
         """Handle incoming tick data - Auto process signals"""
-        if self.state != TradingState.RUNNING:
-            logger.debug(f"Tick ignored - state is {self.state.value}")
-            return
-        
-        self._last_activity_time = time.time()
-        
-        if self.pending_result:
-            logger.debug("Tick ignored - waiting for pending trade result")
-            self._last_activity_time = time.time()
-            return  # Wait for current trade to complete
-        
-        if not self.strategy:
-            logger.debug("Tick ignored - no strategy configured")
-            return
-        
-        with self._trade_lock:
-            # Add tick to strategy and get signal
-            # Handle different add_tick() signatures based on strategy instance type
-            if isinstance(self.strategy, (AccumulatorStrategy, DigitPadStrategy)):
-                # AccumulatorStrategy and DigitPadStrategy take (symbol, tick)
-                symbol = self.config.symbol if self.config else "R_100"
-                signal = self.strategy.add_tick(symbol, tick)
-            else:
-                # Other strategies take (tick) only
-                signal = self.strategy.add_tick(tick)
+        try:
+            if self.state != TradingState.RUNNING:
+                logger.debug(f"Tick ignored - state is {self.state.value}")
+                return
             
-            if signal:
-                logger.info(f"Signal received: direction={getattr(signal, 'direction', 'N/A')}, confidence={getattr(signal, 'confidence', 0):.2%}")
-                self._process_signal(signal)
-            else:
-                logger.debug("No signal from strategy")
+            self._last_activity_time = time.time()
+            
+            if self.pending_result:
+                logger.debug("Tick ignored - waiting for pending trade result")
+                self._last_activity_time = time.time()
+                return  # Wait for current trade to complete
+            
+            if not self.strategy:
+                logger.debug("Tick ignored - no strategy configured")
+                return
+            
+            with self._trade_lock:
+                # Add tick to strategy and get signal
+                # Handle different add_tick() signatures based on strategy instance type
+                try:
+                    if isinstance(self.strategy, (AccumulatorStrategy, DigitPadStrategy)):
+                        # AccumulatorStrategy and DigitPadStrategy take (symbol, tick)
+                        symbol = self.config.symbol if self.config else "R_100"
+                        signal = self.strategy.add_tick(symbol, tick)
+                    else:
+                        # Other strategies take (tick) only
+                        signal = self.strategy.add_tick(tick)
+                except Exception as strategy_error:
+                    logger.error(f"Strategy add_tick error: {strategy_error}", exc_info=True)
+                    signal = None
+                
+                if signal:
+                    signal_type = type(signal).__name__
+                    signal_dir = getattr(signal, 'direction', getattr(signal, 'contract_type', 'N/A'))
+                    signal_conf = getattr(signal, 'confidence', 0)
+                    logger.info(f"🎯 SIGNAL RECEIVED | Type: {signal_type} | "
+                               f"Direction: {signal_dir} | Confidence: {signal_conf:.2%}")
+                    self._process_signal(signal)
+                else:
+                    logger.debug("No signal from strategy")
+        except Exception as e:
+            logger.error(f"Error in _on_tick: {e}", exc_info=True)
     
     def _process_signal(self, signal):
         """Process trading signal automatically"""
-        if not self.config:
-            logger.error("No config available for signal processing")
-            return
-        
-        # Check session limits
-        if self.config.max_trades and self.session_trades >= self.config.max_trades:
-            logger.info("Max trades reached")
-            self.stop()
-            return
-        
-        # Check take profit
-        if self.config.take_profit and self.session_profit >= self.config.take_profit:
-            logger.info(f"Take profit reached: {self.session_profit:.2f}")
-            self.stop()
-            return
-        
-        # Check stop loss
-        if self.config.stop_loss and self.session_profit <= -self.config.stop_loss:
-            logger.info(f"Stop loss reached: {self.session_profit:.2f}")
-            self.stop()
-            return
-        
-        # Check session loss limit - dynamically calculated
-        current_balance = self.ws.get_balance()
-        session_loss = self.starting_balance - current_balance
-        
-        # Calculate dynamic loss limit based on strategy
-        strategy_name = self.config.strategy.value if self.config else "MULTI_INDICATOR"
-        loss_pct = self.STRATEGY_LOSS_LIMITS.get(strategy_name, self.DEFAULT_SESSION_LOSS_PCT)
-        max_loss = self.starting_balance * loss_pct
-        self.session_loss_limit = max_loss
-        
-        # Send warnings at 50%, 75%, 90%
-        loss_percentage = session_loss / max_loss if max_loss > 0 else 0
-        if loss_percentage >= 0.90 and not hasattr(self, '_warned_90'):
-            self._warned_90 = True
-            if self.on_loss_warning:
-                self.on_loss_warning(90, session_loss, max_loss, current_balance)
-            if self.on_progress:
-                self.on_progress({
-                    "type": "loss_warning",
-                    "message": f"⚠️ PERINGATAN: 90% dari batas loss tercapai (${session_loss:.2f}/${max_loss:.2f})"
-                })
-        elif loss_percentage >= 0.75 and not hasattr(self, '_warned_75'):
-            self._warned_75 = True
-            if self.on_loss_warning:
-                self.on_loss_warning(75, session_loss, max_loss, current_balance)
-            if self.on_progress:
-                self.on_progress({
-                    "type": "loss_warning",
-                    "message": f"⚠️ Peringatan: 75% dari batas loss tercapai (${session_loss:.2f}/${max_loss:.2f})"
-                })
-        elif loss_percentage >= 0.50 and not hasattr(self, '_warned_50'):
-            self._warned_50 = True
-            if self.on_loss_warning:
-                self.on_loss_warning(50, session_loss, max_loss, current_balance)
-        
-        if session_loss >= max_loss:
-            logger.warning(f"Session loss limit reached: {session_loss:.2f} >= {max_loss:.2f} ({loss_pct*100:.0f}% of balance)")
-            if self.on_progress:
-                self.on_progress({
-                    "type": "session_stopped",
-                    "message": f"🛑 Sesi dihentikan: Batas loss {loss_pct*100:.0f}% tercapai (${session_loss:.2f})"
-                })
-            self.stop()
-            return
-        
-        # Check trade analyzer for losing streak
-        should_pause, pause_reason = self.trade_analyzer.should_pause()
-        if should_pause:
-            logger.warning(f"Trade analyzer recommends pause: {pause_reason}")
-            if self.on_progress:
-                self.on_progress({
-                    "type": "pause_recommended",
-                    "message": f"⏸️ Direkomendasikan jeda: {pause_reason}"
-                })
-            return
-        
-        # Build market context for entry filter
-        if hasattr(signal, 'indicators'):
-            market_context = self.entry_filter.get_market_context(signal.indicators)
-        else:
-            market_context = {
-                "trend": "NEUTRAL",
-                "adx": 20,
-                "volatility_percentile": 50
+        try:
+            logger.info(f"📝 Processing signal: {type(signal).__name__}")
+            
+            if not self.config:
+                logger.error("❌ No config available for signal processing")
+                return
+            
+            # Check session limits
+            if self.config.max_trades and self.session_trades >= self.config.max_trades:
+                logger.info("Max trades reached")
+                self.stop()
+                return
+            
+            # Check take profit
+            if self.config.take_profit and self.session_profit >= self.config.take_profit:
+                logger.info(f"Take profit reached: {self.session_profit:.2f}")
+                self.stop()
+                return
+            
+            # Check stop loss
+            if self.config.stop_loss and self.session_profit <= -self.config.stop_loss:
+                logger.info(f"Stop loss reached: {self.session_profit:.2f}")
+                self.stop()
+                return
+            
+            # Check session loss limit - dynamically calculated
+            current_balance = self.ws.get_balance()
+            session_loss = self.starting_balance - current_balance
+            
+            # Calculate dynamic loss limit based on strategy
+            strategy_name = self.config.strategy.value if self.config else "MULTI_INDICATOR"
+            loss_pct = self.STRATEGY_LOSS_LIMITS.get(strategy_name, self.DEFAULT_SESSION_LOSS_PCT)
+            max_loss = self.starting_balance * loss_pct
+            self.session_loss_limit = max_loss
+            
+            # Send warnings at 50%, 75%, 90%
+            loss_percentage = session_loss / max_loss if max_loss > 0 else 0
+            if loss_percentage >= 0.90 and not hasattr(self, '_warned_90'):
+                self._warned_90 = True
+                if self.on_loss_warning:
+                    self.on_loss_warning(90, session_loss, max_loss, current_balance)
+                if self.on_progress:
+                    self.on_progress({
+                        "type": "loss_warning",
+                        "message": f"⚠️ PERINGATAN: 90% dari batas loss tercapai (${session_loss:.2f}/${max_loss:.2f})"
+                    })
+            elif loss_percentage >= 0.75 and not hasattr(self, '_warned_75'):
+                self._warned_75 = True
+                if self.on_loss_warning:
+                    self.on_loss_warning(75, session_loss, max_loss, current_balance)
+                if self.on_progress:
+                    self.on_progress({
+                        "type": "loss_warning",
+                        "message": f"⚠️ Peringatan: 75% dari batas loss tercapai (${session_loss:.2f}/${max_loss:.2f})"
+                    })
+            elif loss_percentage >= 0.50 and not hasattr(self, '_warned_50'):
+                self._warned_50 = True
+                if self.on_loss_warning:
+                    self.on_loss_warning(50, session_loss, max_loss, current_balance)
+            
+            if session_loss >= max_loss:
+                logger.warning(f"Session loss limit reached: {session_loss:.2f} >= {max_loss:.2f} ({loss_pct*100:.0f}% of balance)")
+                if self.on_progress:
+                    self.on_progress({
+                        "type": "session_stopped",
+                        "message": f"🛑 Sesi dihentikan: Batas loss {loss_pct*100:.0f}% tercapai (${session_loss:.2f})"
+                    })
+                self.stop()
+                return
+            
+            # Check trade analyzer for losing streak
+            should_pause, pause_reason = self.trade_analyzer.should_pause()
+            if should_pause:
+                logger.warning(f"Trade analyzer recommends pause: {pause_reason}")
+                if self.on_progress:
+                    self.on_progress({
+                        "type": "pause_recommended",
+                        "message": f"⏸️ Direkomendasikan jeda: {pause_reason}"
+                    })
+                return
+            
+            # Build market context for entry filter
+            if hasattr(signal, 'indicators'):
+                market_context = self.entry_filter.get_market_context(signal.indicators)
+            else:
+                market_context = {
+                    "trend": "NEUTRAL",
+                    "adx": 20,
+                    "volatility_percentile": 50
+                }
+            
+            # Filter signal
+            signal_data = {
+                "confidence": signal.confidence,
+                "direction": signal.direction if hasattr(signal, 'direction') else "BUY"
             }
-        
-        # Filter signal
-        signal_data = {
-            "confidence": signal.confidence,
-            "direction": signal.direction if hasattr(signal, 'direction') else "BUY"
-        }
-        
-        filter_result = self.entry_filter.filter(signal_data, market_context)
-        
-        if not filter_result.passed:
-            logger.debug(f"Signal filtered: {filter_result.reasons}")
-            return
-        
-        # Calculate stake
-        stake = self._calculate_stake(filter_result)
-        
-        if stake <= 0:
-            logger.warning("Stake calculation returned 0")
-            return
-        
-        # Execute trade automatically
-        self._execute_trade(signal, stake)
+            
+            filter_result = self.entry_filter.filter(signal_data, market_context)
+            
+            if not filter_result.passed:
+                logger.info(f"⏭️ Signal filtered out: {filter_result.reasons}")
+                return
+            
+            logger.info("✅ Signal passed entry filter")
+            
+            # Calculate stake
+            stake = self._calculate_stake(filter_result)
+            logger.info(f"💰 Stake calculated: ${stake:.2f}")
+            
+            if stake <= 0:
+                logger.warning("❌ Stake calculation returned 0 - skipping trade")
+                return
+            
+            # Execute trade automatically
+            logger.info(f"🚀 Initiating trade execution...")
+            self._execute_trade(signal, stake)
+            
+        except Exception as e:
+            logger.error(f"❌ Error in _process_signal: {e}", exc_info=True)
     
     def _calculate_stake(self, filter_result: FilterResult) -> float:
         """
@@ -793,13 +814,20 @@ class TradingManager:
     def _execute_trade_worker(self, contract_type: str, stake: float, signal_confidence: float, barrier: Optional[str] = None, growth_rate: Optional[float] = None):
         """Worker method that actually executes the trade (runs in separate thread)"""
         if not self.config:
-            logger.error("No config available in trade worker")
+            logger.error("❌ No config available in trade worker")
             self.pending_result = False
             return
         
         try:
-            logger.info(f"Executing trade with stake ${stake:.2f}")
-            logger.info(f"Contract type: {contract_type}" + (f", barrier: {barrier}" if barrier else ""))
+            logger.info(f"📤 TRADE EXECUTION STARTED")
+            logger.info(f"   Symbol: {self.config.symbol}")
+            logger.info(f"   Contract: {contract_type}")
+            logger.info(f"   Stake: ${stake:.2f}")
+            logger.info(f"   Confidence: {signal_confidence:.1%}")
+            if barrier:
+                logger.info(f"   Barrier: {barrier}")
+            if growth_rate:
+                logger.info(f"   Growth Rate: {growth_rate*100:.1f}%")
             
             # Get duration
             duration = self.config.duration
@@ -834,6 +862,15 @@ class TradingManager:
                 self._consecutive_timeouts = 0
                 self._last_activity_time = time.time()
                 
+                # Get current tick price as fallback for entry_price
+                current_tick_price = 0.0
+                try:
+                    tick_history = self.ws.get_ticks_history(self.config.symbol, 1)
+                    if tick_history:
+                        current_tick_price = tick_history[-1].get("quote", 0.0)
+                except Exception as e:
+                    logger.warning(f"Could not get current tick price: {e}")
+                
                 self.active_trade = {
                     "contract_id": result["contract_id"],
                     "buy_price": result["buy_price"],
@@ -841,12 +878,14 @@ class TradingManager:
                     "stake": stake,
                     "entry_time": datetime.now(),
                     "trade_number": self.session_trades + 1,
-                    "symbol": self.config.symbol
+                    "symbol": self.config.symbol,
+                    "entry_tick_price": current_tick_price  # Store for fallback
                 }
                 
                 logger.info(
-                    f"Trade opened | Type: {contract_type} | "
-                    f"Stake: {stake:.2f} | Confidence: {signal_confidence:.1%}"
+                    f"✅ TRADE OPENED | Contract: {result['contract_id']} | "
+                    f"Type: {contract_type} | Stake: ${stake:.2f} | "
+                    f"Confidence: {signal_confidence:.1%} | Entry: ${current_tick_price:.5f}"
                 )
                 
                 if self.on_trade_opened:
@@ -1037,14 +1076,30 @@ class TradingManager:
             else:
                 self.session_losses += 1
             
+            # Get entry_price with fallback to stored tick price or buy_price
+            entry_price_raw = float(contract.get("entry_spot", 0))
+            if entry_price_raw == 0:
+                # Fallback 1: Use stored entry tick price
+                entry_price_raw = float(self.active_trade.get("entry_tick_price", 0))
+            if entry_price_raw == 0:
+                # Fallback 2: Use buy_price from active trade
+                entry_price_raw = float(self.active_trade.get("buy_price", 0))
+            
+            # Get exit_price with fallback
+            exit_price_raw = float(contract.get("exit_tick", 0))
+            if exit_price_raw == 0:
+                exit_price_raw = float(contract.get("current_spot", 0))
+            
+            logger.info(f"Trade prices: entry={entry_price_raw}, exit={exit_price_raw}")
+            
             # Record in trade analyzer for pattern detection and pause recommendations
             strategy_name = self.config.strategy.value if self.config else "UNKNOWN"
             self.trade_analyzer.record_trade(
                 strategy=strategy_name,
                 is_win=is_win,
                 profit=profit,
-                entry_price=float(contract.get("entry_spot", 0)),
-                exit_price=float(contract.get("exit_tick", 0))
+                entry_price=entry_price_raw,
+                exit_price=exit_price_raw
             )
             
             # Get balance after
@@ -1061,8 +1116,8 @@ class TradingManager:
                 time=now.strftime("%H:%M:%S"),
                 symbol=self.config.symbol,
                 direction=direction,
-                entry_price=float(contract.get("entry_spot", 0)),
-                exit_price=float(contract.get("exit_tick", 0)),
+                entry_price=entry_price_raw,  # Use corrected entry price
+                exit_price=exit_price_raw,    # Use corrected exit price
                 stake=self.active_trade.get("stake", 0),
                 payout=profit + self.active_trade.get("stake", 0) if profit > 0 else 0,
                 profit=profit,
@@ -1103,10 +1158,12 @@ class TradingManager:
                     "symbol": self.config.symbol if self.config else "",
                     "martingale_level": self.martingale_level,
                     "next_stake": self._calculate_next_stake(),
-                    "entry_spot": float(contract.get("entry_spot", 0)),
-                    "exit_tick": float(contract.get("exit_tick", 0))
+                    "entry_spot": entry_price_raw,  # Use corrected entry price
+                    "exit_tick": exit_price_raw      # Use corrected exit price
                 }
-                logger.debug(f"Triggering on_trade_closed callback: profit={profit}, trades={self.session_trades}")
+                logger.info(f"📊 TRADE CLOSED | Result: {'✅ WIN' if profit > 0 else '❌ LOSS'} | "
+                           f"Profit: ${profit:+.2f} | Session P/L: ${self.session_profit:+.2f} | "
+                           f"Trade #{self.session_trades}")
                 self.on_trade_closed(callback_data)
             
             # Progress notification
