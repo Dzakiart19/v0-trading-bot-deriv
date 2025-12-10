@@ -1,0 +1,89 @@
+{
+  "export_time": "2025-12-10T08:06:17.081095",
+  "session_summary": {
+    "session_start": "2025-12-10T08:05:40.833300",
+    "total_trades": 2,
+    "wins": 2,
+    "losses": 0,
+    "win_rate": 100.0,
+    "rolling_win_rate": 100.0,
+    "total_profit": 1.7400000000000002,
+    "profit_factor": Infinity,
+    "max_drawdown": 0.0,
+    "best_hours": [
+      8
+    ],
+    "martingale_success_rate": 0.0,
+    "hourly_profits": {
+      "0": 0.0,
+      "1": 0.0,
+      "2": 0.0,
+      "3": 0.0,
+      "4": 0.0,
+      "5": 0.0,
+      "6": 0.0,
+      "7": 0.0,
+      "8": 1.7400000000000002,
+      "9": 0.0,
+      "10": 0.0,
+      "11": 0.0,
+      "12": 0.0,
+      "13": 0.0,
+      "14": 0.0,
+      "15": 0.0,
+      "16": 0.0,
+      "17": 0.0,
+      "18": 0.0,
+      "19": 0.0,
+      "20": 0.0,
+      "21": 0.0,
+      "22": 0.0,
+      "23": 0.0
+    }
+  },
+  "martingale_stats": {
+    "recovery_attempts": 0,
+    "recovery_success": 0,
+    "max_level_reached": 0
+  },
+  "trades": [
+    {
+      "date": "2025-12-10",
+      "time": "08:06:00",
+      "symbol": "R_100",
+      "direction": "BUY",
+      "entry_price": 596.56,
+      "exit_price": 596.91,
+      "stake": 0.87264,
+      "payout": 1.70264,
+      "profit": 0.83,
+      "result": "WIN",
+      "martingale_level": 0,
+      "balance_before": 9.92,
+      "balance_after": 9.92,
+      "win_rate": 100.0,
+      "strategy": "MULTI_INDICATOR",
+      "confidence": 0.7,
+      "confluence": 50.0
+    },
+    {
+      "date": "2025-12-10",
+      "time": "08:06:16",
+      "symbol": "R_100",
+      "direction": "SELL",
+      "entry_price": 596.87,
+      "exit_price": 596.84,
+      "stake": 0.9523199999999999,
+      "payout": 1.86232,
+      "profit": 0.9100000000000001,
+      "result": "WIN",
+      "martingale_level": 0,
+      "balance_before": 10.83,
+      "balance_after": 10.83,
+      "win_rate": 100.0,
+      "strategy": "MULTI_INDICATOR",
+      "confidence": 0.7,
+      "confluence": 50.0
+    }
+  ]
+}
