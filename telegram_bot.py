@@ -825,6 +825,10 @@ Klik tombol di bawah untuk memulai:"""
         # Get current selected stake or use default
         current_stake = self._user_context.get(f"selected_stake_{user.id}", default_stake)
         
+        # Get min/max stake values
+        min_stake = strategy_config.min_stake if strategy_config else 0.35
+        max_stake = strategy_config.max_stake if strategy_config else 100.00
+        
         escaped_name = html.escape(strategy_info.get('name', strategy))
         escaped_desc = html.escape(strategy_info.get('description', ''))
         text = f"""
@@ -833,8 +837,8 @@ Klik tombol di bawah untuk memulai:"""
 📊 Strategi: {strategy_info.get('icon', '')} <b>{escaped_name}</b>
 {escaped_desc}
 
-💡 Minimum stake: ${strategy_config.min_stake:.2f if strategy_config else 0.35}
-📈 Maximum stake: ${strategy_config.max_stake:.2f if strategy_config else 100.00}
+💡 Minimum stake: ${min_stake:.2f}
+📈 Maximum stake: ${max_stake:.2f}
 
 Pilih jumlah stake per trade:
 """
