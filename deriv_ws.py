@@ -925,25 +925,17 @@ class DerivWebSocket:
             logger.error("Pre-accumulator ping failed")
             return None
         
-        # Build accumulator proposal - Deriv API uses specific format
-        # Note: For ACCU contracts, only take_profit is allowed in limit_order (stop_loss is NOT valid)
-        # Take profit = stake * 0.5 means we lock in 50% profit (easier to achieve with fewer ticks)
-        # This helps ensure the bot actually gets WIN results instead of hitting barriers
-        take_profit_amount = round(stake * 0.5, 2)  # 50% profit target (achievable in ~5-8 ticks at 1-2%)
-        
+        # Build accumulator proposal - Deriv API format
+        # Note: Accumulator contracts don't use standard proposal/buy flow like regular contracts
+        # They require direct buy without proposal step for some symbols
         parameters = {
             "contract_type": "ACCU",
             "symbol": symbol,
             "currency": self.currency,
             "basis": "stake",
             "amount": round(float(stake), 2),
-            "growth_rate": growth_rate,
-            "limit_order": {
-                "take_profit": take_profit_amount  # Conservative TP for more wins
-            }
+            "growth_rate": growth_rate
         }
-        
-        logger.info(f"Accumulator TP target: ${take_profit_amount} (50% of stake ${stake})")
         
         logger.info(f"Accumulator proposal: {symbol} stake={stake} growth_rate={growth_rate*100}%")
         

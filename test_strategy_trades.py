@@ -80,6 +80,7 @@ STRATEGY_CONTRACT_MAP = {
         "description": "Accumulator contract with growth rate",
         "needs_barrier": False,
         "needs_growth_rate": True,
+        "min_stake": 1.00,
     },
     "SNIPER": {
         "contracts": ["CALL", "PUT"],
@@ -285,10 +286,13 @@ class StrategyTrader:
             self.log("")
             self.log("  [AMT ACCUMULATOR TEST]")
             
+            amt_stake = max(config.get("min_stake", 1.00), TEST_CONFIG["base_stake"])
+            self.log(f"  Stake minimum untuk Accumulator: ${amt_stake}")
+            
             success, trade_result = self.execute_trade(
                 contract_type="ACCU",
                 symbol=TEST_CONFIG["symbol"],
-                stake=TEST_CONFIG["base_stake"],
+                stake=amt_stake,
                 duration=0,
                 duration_unit="",
                 growth_rate=0.01

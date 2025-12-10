@@ -660,6 +660,10 @@ class TradingManager:
                 return
             contract_type = "ACCU"
             growth_rate = signal.growth_rate / 100.0  # Convert 1-5 to 0.01-0.05
+            # Accumulator requires minimum stake of $1.00
+            if stake < 1.0:
+                logger.info(f"Adjusting stake from ${stake:.2f} to $1.00 (Accumulator minimum)")
+                stake = 1.0
             logger.info(f"AMT Accumulator: growth_rate={signal.growth_rate}%, trend={signal.trend_strength}")
         
         # Handle LDP and DigitPad signals - use digit contracts
