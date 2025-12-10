@@ -51,8 +51,8 @@ class DigitPadStrategy:
     COLD_THRESHOLD = 0.05  # 5% frequency = cold
     STREAK_THRESHOLD = 3
     ZONE_IMBALANCE_THRESHOLD = 0.25
-    MIN_CONFIDENCE = 0.60
-    MIN_TICKS = 100
+    MIN_CONFIDENCE = 0.55  # Lowered for more frequent signals
+    MIN_TICKS = 50  # Faster warmup
     
     # Supported symbols
     SUPPORTED_SYMBOLS = [

@@ -69,8 +69,8 @@ class AccumulatorStrategy:
     VOLATILITY_WINDOW = 20
     
     # Thresholds
-    MIN_CONFIDENCE = 0.65
-    MIN_TICKS = 50
+    MIN_CONFIDENCE = 0.55  # Lowered for more trades
+    MIN_TICKS = 30  # Faster warmup
     
     # Growth rate selection criteria
     GROWTH_CRITERIA = {

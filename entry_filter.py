@@ -37,15 +37,15 @@ class EntryFilter:
     - Entry score calculation
     """
     
-    # Thresholds by risk level
+    # Thresholds by risk level - Slightly lowered for more frequent trading
     CONFIDENCE_THRESHOLDS = {
-        RiskLevel.LOW: 0.70,
-        RiskLevel.MEDIUM: 0.65,
-        RiskLevel.HIGH: 0.60,
-        RiskLevel.AGGRESSIVE: 0.55
+        RiskLevel.LOW: 0.65,
+        RiskLevel.MEDIUM: 0.60,
+        RiskLevel.HIGH: 0.55,
+        RiskLevel.AGGRESSIVE: 0.50
     }
     
-    MIN_ENTRY_SCORE = 60
+    MIN_ENTRY_SCORE = 55  # Lowered from 60 for more entries
     HIGH_ENTRY_SCORE = 80
     
     # Scoring weights

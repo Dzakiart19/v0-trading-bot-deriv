@@ -70,9 +70,9 @@ class SniperStrategy:
     ]
     
     # Thresholds
-    MIN_CONFIDENCE = 0.80  # 80% minimum
-    MIN_CONFIRMATIONS = 3
-    MIN_TICKS = 100
+    MIN_CONFIDENCE = 0.78  # 78% minimum (slightly lowered for more trades while keeping high quality)
+    MIN_CONFIRMATIONS = 2  # Reduced confirmations
+    MIN_TICKS = 50  # Faster warmup
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
@@ -103,7 +103,7 @@ class SniperStrategy:
         # Signal history
         self.signals: deque = deque(maxlen=100)
         self.last_signal_time = 0
-        self.signal_cooldown = 30  # Long cooldown for sniper
+        self.signal_cooldown = 10  # Reduced cooldown for sniper
         
         # Trading state - Default to True for automatic trading
         self.is_trading = True

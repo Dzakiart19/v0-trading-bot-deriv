@@ -24,6 +24,7 @@ from i18n import get_text, detect_language, set_user_language, get_user_language
 from symbols import get_symbol_list_text, get_short_term_symbols, get_symbol_config
 from deriv_ws import DerivWebSocket
 from trading import TradingManager, TradingConfig, TradingState, StrategyType
+from strategy_config import get_strategy_config, StrategyName
 
 logger = logging.getLogger(__name__)
 
@@ -492,16 +493,21 @@ Klik tombol di bawah untuk membuka WebApp:
         selected_strategy = self._user_strategies.get(user.id, "TERMINAL")
         selected_symbol = self._user_context.get(f"selected_symbol_{user.id}", "R_100")
         
+        # Get strategy config for default stake
+        strategy_config = get_strategy_config(selected_strategy)
+        default_stake = strategy_config.default_stake if strategy_config else 1.00
+        selected_stake = self._user_context.get(f"selected_stake_{user.id}", default_stake)
+        
         strategy_info = STRATEGIES.get(selected_strategy, {})
         
-        strategy_name = strategy_info.get('name', selected_strategy)
+        strategy_name = html.escape(strategy_info.get('name', selected_strategy))
         strategy_icon = strategy_info.get('icon', '')
         
         text = f"""⚙️ <b>Pengaturan Auto Trade</b>
 
 📊 Strategi: {strategy_icon} {strategy_name}
-💱 Pair: {selected_symbol}
-💵 Stake: $1.00 (default)
+💱 Pair: {html.escape(selected_symbol)}
+💵 Stake: <b>${selected_stake:.2f}</b>
 🎯 Target: 10 trades
 
 Klik tombol di bawah untuk memulai:"""
@@ -509,6 +515,7 @@ Klik tombol di bawah untuk memulai:"""
         keyboard = [
             [InlineKeyboardButton("📊 Ubah Strategi", callback_data="menu_strategy")],
             [InlineKeyboardButton("💱 Ubah Pair", callback_data="menu_pair")],
+            [InlineKeyboardButton("💵 Ubah Stake", callback_data=f"change_stake_{selected_strategy}")],
             [InlineKeyboardButton("▶️ MULAI TRADING", callback_data="confirm_start_trading")],
             [InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")]
         ]
@@ -738,6 +745,11 @@ Klik tombol di bawah untuk memulai:"""
             await self._handle_login_callback(query, user, data)
         elif data.startswith("strategy_"):
             await self._handle_strategy_callback(query, user, data)
+        elif data.startswith("stake_"):
+            await self._handle_stake_callback(query, user, data)
+        elif data.startswith("change_stake_"):
+            strategy = data.replace("change_stake_", "")
+            await self._show_stake_selection(query, user, strategy)
         elif data.startswith("symbol_"):
             await self._handle_symbol_callback(query, user, data)
         elif data.startswith("lang_"):
@@ -772,7 +784,7 @@ Klik tombol di bawah untuk memulai:"""
                 )
     
     async def _handle_strategy_callback(self, query, user, data: str):
-        """Handle strategy selection"""
+        """Handle strategy selection - then show stake options"""
         strategy = data.replace("strategy_", "")
         
         if strategy not in STRATEGIES:
@@ -784,26 +796,115 @@ Klik tombol di bawah untuk memulai:"""
         # Notify webapp
         await self._notify_webapp_strategy_change(user.id, strategy)
         
-        strategy_info = STRATEGIES[strategy]
-        webapp_url = self._get_webapp_url(user.id, strategy)
+        # Show stake selection after choosing strategy
+        await self._show_stake_selection(query, user, strategy)
+    
+    async def _show_stake_selection(self, query, user, strategy: str):
+        """Show stake selection options for the selected strategy"""
+        strategy_info = STRATEGIES.get(strategy, {})
+        strategy_config = get_strategy_config(strategy)
         
-        escaped_name = html.escape(strategy_info['name'])
-        escaped_desc = html.escape(strategy_info['description'])
+        if not strategy_config:
+            # Fallback to default stakes if config not found
+            stake_options = [
+                {"value": 0.35, "label": "$0.35"},
+                {"value": 0.50, "label": "$0.50"},
+                {"value": 1.00, "label": "$1.00"},
+                {"value": 2.00, "label": "$2.00"},
+                {"value": 5.00, "label": "$5.00"},
+                {"value": 10.00, "label": "$10.00"},
+            ]
+            default_stake = 1.00
+        else:
+            stake_options = [
+                {"value": s.value, "label": s.label, "is_default": s.is_default} 
+                for s in strategy_config.stake_options
+            ]
+            default_stake = strategy_config.default_stake
+        
+        # Get current selected stake or use default
+        current_stake = self._user_context.get(f"selected_stake_{user.id}", default_stake)
+        
+        escaped_name = html.escape(strategy_info.get('name', strategy))
+        escaped_desc = html.escape(strategy_info.get('description', ''))
         text = f"""
-✅ <b>Strategi Dipilih</b>
+💵 <b>Pilih Stake untuk Trading</b>
 
-{strategy_info['icon']} <b>{escaped_name}</b>
+📊 Strategi: {strategy_info.get('icon', '')} <b>{escaped_name}</b>
 {escaped_desc}
 
-Klik tombol di bawah untuk membuka WebApp atau mulai trading:
+💡 Minimum stake: ${strategy_config.min_stake:.2f if strategy_config else 0.35}
+📈 Maximum stake: ${strategy_config.max_stake:.2f if strategy_config else 100.00}
+
+Pilih jumlah stake per trade:
+"""
+        
+        keyboard = []
+        row = []
+        for opt in stake_options:
+            mark = "✅ " if opt['value'] == current_stake else ""
+            btn = InlineKeyboardButton(
+                f"{mark}{opt['label']}",
+                callback_data=f"stake_{strategy}_{opt['value']}"
+            )
+            row.append(btn)
+            if len(row) == 3:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+        
+        keyboard.append([InlineKeyboardButton("🔙 Ubah Strategi", callback_data="menu_strategy")])
+        keyboard.append([InlineKeyboardButton("🏠 Menu Utama", callback_data="menu_main")])
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    async def _handle_stake_callback(self, query, user, data: str):
+        """Handle stake selection"""
+        # Parse stake data: stake_STRATEGY_VALUE
+        parts = data.replace("stake_", "").rsplit("_", 1)
+        if len(parts) != 2:
+            await query.answer("Data stake tidak valid", show_alert=True)
+            return
+        
+        strategy = parts[0]
+        try:
+            stake_value = float(parts[1])
+        except ValueError:
+            await query.answer("Nilai stake tidak valid", show_alert=True)
+            return
+        
+        # Store selected stake
+        self._user_context[f"selected_stake_{user.id}"] = stake_value
+        
+        strategy_info = STRATEGIES.get(strategy, {})
+        webapp_url = self._get_webapp_url(user.id, strategy)
+        
+        escaped_name = html.escape(strategy_info.get('name', strategy))
+        escaped_desc = html.escape(strategy_info.get('description', ''))
+        text = f"""
+✅ <b>Konfigurasi Trading</b>
+
+📊 Strategi: {strategy_info.get('icon', '')} <b>{escaped_name}</b>
+💵 Stake: <b>${stake_value:.2f}</b> per trade
+
+{escaped_desc}
+
+Klik tombol di bawah untuk mulai trading:
 """
         
         keyboard = [
+            [InlineKeyboardButton("▶️ MULAI TRADING", callback_data="confirm_start_trading")],
             [InlineKeyboardButton(
-                f"🌐 Buka {strategy_info['name']}",
+                f"🌐 Buka {strategy_info.get('name', 'WebApp')}",
                 web_app=WebAppInfo(url=webapp_url)
             )],
-            [InlineKeyboardButton("▶️ Auto Trade", callback_data="menu_autotrade")],
+            [InlineKeyboardButton("💵 Ubah Stake", callback_data=f"change_stake_{strategy}")],
+            [InlineKeyboardButton("📊 Ubah Strategi", callback_data="menu_strategy")],
             [InlineKeyboardButton("🔙 Menu Utama", callback_data="menu_main")]
         ]
         
@@ -1027,6 +1128,16 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             await query.edit_message_text("✅ Berhasil logout. Sampai jumpa!")
         
         elif action == "start_trading":
+            # Check if stake was explicitly selected for current strategy
+            selected_strategy = self._user_strategies.get(user.id, "TERMINAL")
+            stake_key = f"selected_stake_{user.id}"
+            
+            if stake_key not in self._user_context:
+                # Stake not selected, show stake selection first
+                await query.answer("Silakan pilih stake terlebih dahulu", show_alert=True)
+                await self._show_stake_selection(query, user, selected_strategy)
+                return
+            
             await self._start_trading(query, user, context)
         
         elif action == "stop_trading":
@@ -1259,6 +1370,17 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         selected_strategy = self._user_strategies.get(user.id, "TERMINAL")
         selected_symbol = self._user_context.get(f"selected_symbol_{user.id}", "R_100")
         
+        # Get selected stake (required - must be explicitly selected)
+        stake_key = f"selected_stake_{user.id}"
+        if stake_key not in self._user_context:
+            # This should not happen as we check in confirm_start_trading
+            await query.answer("Silakan pilih stake terlebih dahulu", show_alert=True)
+            await self._show_stake_selection(query, user, selected_strategy)
+            return
+        
+        selected_stake = self._user_context[stake_key]
+        strategy_config = get_strategy_config(selected_strategy)
+        
         # Map strategy name to enum
         strategy_map = {
             "TERMINAL": StrategyType.TERMINAL,
@@ -1271,10 +1393,10 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
         }
         strategy_type = strategy_map.get(selected_strategy, StrategyType.MULTI_INDICATOR)
         
-        # Create trading config with correct strategy
+        # Create trading config with selected stake
         config = TradingConfig(
             symbol=selected_symbol,
-            base_stake=1.0,
+            base_stake=selected_stake,
             payout_percent=85.0,
             take_profit=10.0,
             stop_loss=25.0,
@@ -1421,7 +1543,7 @@ Klik tombol di bawah untuk membuka WebApp atau mulai trading:
             f"▶️ <b>Trading Dimulai!</b>\n\n"
             f"📊 Strategi: {strategy_info.get('icon', '')} {strategy_name}\n"
             f"💱 Symbol: {symbol_name}\n"
-            f"💵 Stake: $1.00\n\n"
+            f"💵 Stake: ${selected_stake:.2f}\n\n"
             f"Gunakan /status untuk melihat progress\n"
             f"Gunakan /stop untuk menghentikan",
             parse_mode=ParseMode.HTML,
