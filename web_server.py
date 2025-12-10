@@ -55,6 +55,7 @@ class TradingStartRequest(BaseModel):
     symbol: str
     strategy: str
     stake: float
+    target_trades: Optional[int] = 10
 
 class TradingStopRequest(BaseModel):
     telegram_id: int
@@ -745,6 +746,21 @@ async def get_deriv_app_id():
     """Get Deriv App ID for OAuth"""
     return {"app_id": DERIV_APP_ID}
 
+@app.get("/api/strategy/configs")
+async def get_strategy_configs():
+    """Get all strategy configurations with stake options and trade count options"""
+    from strategy_config import get_all_strategy_configs
+    return get_all_strategy_configs()
+
+@app.get("/api/strategy/{strategy_name}/config")
+async def get_single_strategy_config(strategy_name: str):
+    """Get configuration for a specific strategy"""
+    from strategy_config import get_strategy_config
+    config = get_strategy_config(strategy_name)
+    if not config:
+        raise HTTPException(status_code=404, detail=f"Strategy '{strategy_name}' not found")
+    return config.to_dict()
+
 @app.post("/api/auth/telegram")
 async def telegram_auth(data: TelegramAuthData):
     """Authenticate via Telegram WebApp"""
@@ -1155,6 +1171,7 @@ async def trading_start(request: TradingStartRequest):
         symbol=request.symbol,
         strategy=strategy_type,
         base_stake=request.stake,
+        target_trades=request.target_trades if request.target_trades != -1 else 999999,
         auto_trade=True
     )
     

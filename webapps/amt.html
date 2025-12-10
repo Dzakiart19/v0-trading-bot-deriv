@@ -100,14 +100,24 @@
             cursor: pointer;
             transition: all 0.2s;
         }
-        .stake-btn:hover {
+        .stake-btn:hover, .trade-count-btn:hover {
             border-color: var(--accent-yellow);
             color: var(--text-primary);
         }
-        .stake-btn.active {
+        .stake-btn.active, .trade-count-btn.active {
             background: var(--accent-yellow);
             border-color: var(--accent-yellow);
             color: #000;
+        }
+        .trade-count-btn {
+            padding: 8px 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
         }
         .auto-trade-toggle {
             display: flex;
@@ -483,6 +493,17 @@
             </div>
             <input type="number" id="stake" value="1" min="1" step="1" style="margin-top: 8px;">
         </div>
+        <div class="form-group" style="margin-bottom: 12px; margin-top: 12px;">
+            <label>Trade Count</label>
+            <div class="stake-selector">
+                <button class="trade-count-btn" onclick="setTradeCount(5)">5</button>
+                <button class="trade-count-btn active" onclick="setTradeCount(10)">10</button>
+                <button class="trade-count-btn" onclick="setTradeCount(20)">20</button>
+                <button class="trade-count-btn" onclick="setTradeCount(50)">50</button>
+                <button class="trade-count-btn" onclick="setTradeCount(100)">100</button>
+                <button class="trade-count-btn" onclick="setTradeCount(-1)">♾️</button>
+            </div>
+        </div>
         <div class="form-row">
             <div class="form-group">
                 <label>Max Ticks</label>
@@ -539,6 +560,18 @@
         let isAutoTrading = false;
         let stats = { wins: 0, losses: 0, profit: 0 };
         let statusSyncInterval = null;
+        let targetTradeCount = 10;
+        
+        function setTradeCount(count) {
+            targetTradeCount = count;
+            document.querySelectorAll('.trade-count-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if ((count === -1 && btn.textContent === '♾️') || 
+                    parseFloat(btn.textContent) === count) {
+                    btn.classList.add('active');
+                }
+            });
+        }
 
         function getTelegramId() { return window.Telegram?.WebApp?.initDataUnsafe?.user?.id || null; }
 
@@ -628,7 +661,14 @@
             const stake = parseFloat(document.getElementById('stake').value);
             try {
                 updateAutoTradeStatus('connecting');
-                const response = await fetch('/api/trading/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ telegram_id: telegramId, symbol: currentSymbol, strategy: STRATEGY_NAME, stake: stake }) });
+                const payload = { 
+                    telegram_id: telegramId, 
+                    symbol: currentSymbol, 
+                    strategy: STRATEGY_NAME, 
+                    stake: stake,
+                    target_trades: targetTradeCount
+                };
+                const response = await fetch('/api/trading/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                 const data = await response.json();
                 if (data.success) { isAutoTrading = true; document.getElementById('autoTradeToggle').classList.add('active'); updateAutoTradeStatus('running'); startStatusSync(); }
                 else { alert(data.error || 'Failed to start'); document.getElementById('autoTradeToggle').classList.remove('active'); updateAutoTradeStatus('stopped'); }

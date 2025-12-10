@@ -35,6 +35,8 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `GET /api/telegram/check-login` - Check if user logged in via Telegram
 - `POST /api/telegram/sync-deriv-token` - Sync Deriv token (requires session)
 - `POST /api/telegram/sync-deriv-account` - Sync Deriv account (requires session)
+- `GET /api/strategy/configs` - Get all strategy configurations (stakes, trade counts)
+- `GET /api/strategy/{name}/config` - Get single strategy configuration
 - `GET /api/user/strategy` - Get selected strategy
 - `POST /api/user/strategy` - Set selected strategy
 - `POST /api/trade/place` - Place a trade
@@ -53,6 +55,10 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
 
 ## Recent Changes
+- 2025-12-10: **Strategy Configurations** - Added `strategy_config.py` with stake options and trade count options for all 8 strategies
+- 2025-12-10: **API Endpoint** - Added `/api/strategy/configs` and `/api/strategy/{name}/config` endpoints
+- 2025-12-10: **AMT Trade Count UI** - Added trade count selection (5, 10, 20, 50, 100, Unlimited) to AMT webapp
+- 2025-12-10: **Auto Trade Test** - Created `auto_trade_test.py` for testing real trades with token 074qAV4XaEqz8Jl
 - 2025-12-10: **All 8 Strategies Working** - Verified all strategies trade correctly via test_strategy_trades.py
 - 2025-12-10: **AMT Accumulator Fix** - Enforced $1.00 minimum stake requirement (Deriv API limitation)
 - 2025-12-10: **Removed limit_order** - Accumulator contracts no longer use limit_order field (was causing timeouts)
