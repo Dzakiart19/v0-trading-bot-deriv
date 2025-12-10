@@ -520,20 +520,37 @@ class TradingManager:
     def _on_tick(self, tick: Dict[str, Any]):
         """Handle incoming tick data - Auto process signals"""
         try:
+            # VERBOSE LOGGING: Track tick receipt (safely convert to float)
+            tick_quote = float(tick.get('quote', 0) or 0)
+            tick_epoch = tick.get('epoch', 0)
+            logger.debug(f"📥 TICK RECEIVED | Quote: {tick_quote:.5f} | Epoch: {tick_epoch}")
+            
             if self.state != TradingState.RUNNING:
-                logger.debug(f"Tick ignored - state is {self.state.value}")
+                logger.debug(f"⏸️ Tick ignored - state is {self.state.value}")
                 return
             
             self._last_activity_time = time.time()
             
             if self.pending_result:
-                logger.debug("Tick ignored - waiting for pending trade result")
+                logger.debug("⏳ Tick ignored - waiting for pending trade result")
                 self._last_activity_time = time.time()
                 return  # Wait for current trade to complete
             
             if not self.strategy:
-                logger.debug("Tick ignored - no strategy configured")
+                logger.warning("❌ Tick ignored - no strategy configured")
                 return
+            
+            # Log strategy info
+            strategy_name = type(self.strategy).__name__
+            strategy_ticks = 0
+            if hasattr(self.strategy, 'prices'):
+                strategy_ticks = len(self.strategy.prices)
+            elif hasattr(self.strategy, 'closes'):
+                strategy_ticks = len(self.strategy.closes)
+            elif hasattr(self.strategy, 'tick_history'):
+                strategy_ticks = len(self.strategy.tick_history)
+            
+            logger.debug(f"📊 Processing tick with {strategy_name} (data points: {strategy_ticks})")
             
             with self._trade_lock:
                 # Add tick to strategy and get signal
@@ -546,6 +563,24 @@ class TradingManager:
                     else:
                         # Other strategies take (tick) only
                         signal = self.strategy.add_tick(tick)
+                    
+                    # Log analysis result
+                    if signal is None:
+                        # Try to get more info about why no signal
+                        cooldown_info = ""
+                        if hasattr(self.strategy, 'last_signal_time'):
+                            elapsed = time.time() - self.strategy.last_signal_time
+                            cooldown = getattr(self.strategy, 'signal_cooldown', 
+                                             getattr(self.strategy, 'SIGNAL_COOLDOWN', 12))
+                            if elapsed < cooldown:
+                                cooldown_info = f" (cooldown: {elapsed:.1f}s/{cooldown}s)"
+                        
+                        min_ticks = getattr(self.strategy, 'MIN_TICKS', 
+                                          getattr(self.strategy, 'min_ticks', 50))
+                        if strategy_ticks < min_ticks:
+                            logger.debug(f"📈 Warming up: {strategy_ticks}/{min_ticks} ticks needed{cooldown_info}")
+                        else:
+                            logger.debug(f"🔍 No signal generated - analyzing market{cooldown_info}")
                 except Exception as strategy_error:
                     logger.error(f"Strategy add_tick error: {strategy_error}", exc_info=True)
                     signal = None
@@ -554,11 +589,12 @@ class TradingManager:
                     signal_type = type(signal).__name__
                     signal_dir = getattr(signal, 'direction', getattr(signal, 'contract_type', 'N/A'))
                     signal_conf = getattr(signal, 'confidence', 0)
+                    signal_reason = getattr(signal, 'reason', 'N/A')
                     logger.info(f"🎯 SIGNAL RECEIVED | Type: {signal_type} | "
                                f"Direction: {signal_dir} | Confidence: {signal_conf:.2%}")
+                    logger.info(f"📋 Signal reason: {signal_reason}")
                     self._process_signal(signal)
-                else:
-                    logger.debug("No signal from strategy")
+                    
         except Exception as e:
             logger.error(f"Error in _on_tick: {e}", exc_info=True)
     

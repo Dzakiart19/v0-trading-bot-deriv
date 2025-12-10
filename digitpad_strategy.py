@@ -46,13 +46,13 @@ class DigitPadStrategy:
     - Signals Chart integration
     """
     
-    # Thresholds
-    HOT_THRESHOLD = 0.15  # 15% frequency = hot
-    COLD_THRESHOLD = 0.05  # 5% frequency = cold
-    STREAK_THRESHOLD = 3
-    ZONE_IMBALANCE_THRESHOLD = 0.25
-    MIN_CONFIDENCE = 0.55  # Lowered for more frequent signals
-    MIN_TICKS = 50  # Faster warmup
+    # Thresholds - LOWERED for more signals
+    HOT_THRESHOLD = 0.13  # Lowered from 0.15
+    COLD_THRESHOLD = 0.07  # Raised from 0.05 for more signals
+    STREAK_THRESHOLD = 2  # Lowered from 3
+    ZONE_IMBALANCE_THRESHOLD = 0.20  # Lowered from 0.25
+    MIN_CONFIDENCE = 0.45  # Lowered from 0.55
+    MIN_TICKS = 30  # Reduced from 50
     
     # Supported symbols
     SUPPORTED_SYMBOLS = [
@@ -71,7 +71,7 @@ class DigitPadStrategy:
         # Signal history
         self.signals: deque = deque(maxlen=100)
         self.last_signal_time = 0
-        self.signal_cooldown = 5  # seconds
+        self.signal_cooldown = 3  # Reduced from 5 seconds
     
     def _init_symbol(self, symbol: str):
         """Initialize tracking for a symbol"""

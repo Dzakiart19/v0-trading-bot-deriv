@@ -54,11 +54,11 @@ class TickPickerStrategy:
     MEDIUM_WINDOW = 10
     LONG_WINDOW = 20
     
-    # Thresholds
-    STREAK_THRESHOLD = 3
-    REVERSAL_THRESHOLD = 5
-    MIN_CONFIDENCE = 0.55
-    MIN_TICKS = 30
+    # Thresholds - LOWERED for more signals
+    STREAK_THRESHOLD = 2  # Lowered from 3
+    REVERSAL_THRESHOLD = 4  # Lowered from 5
+    MIN_CONFIDENCE = 0.45  # Lowered from 0.55
+    MIN_TICKS = 20  # Reduced from 30
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
@@ -74,7 +74,7 @@ class TickPickerStrategy:
         # Signal history
         self.signals: deque = deque(maxlen=100)
         self.last_signal_time = 0
-        self.signal_cooldown = 3  # seconds
+        self.signal_cooldown = 2  # Reduced from 3 seconds
         
         # Money management
         self.use_martingale = False

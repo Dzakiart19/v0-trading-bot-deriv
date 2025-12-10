@@ -70,9 +70,9 @@ class MultiIndicatorStrategy:
     
     ATR_PERIOD = 14
     
-    MIN_CONFLUENCE = 40
-    MIN_CONFIDENCE = 0.55
-    SIGNAL_COOLDOWN = 12  # seconds
+    MIN_CONFLUENCE = 25  # Lowered from 40 for more signals
+    MIN_CONFIDENCE = 0.40  # Lowered from 0.55 for more signals
+    SIGNAL_COOLDOWN = 5  # Reduced from 12 seconds for faster testing
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol

@@ -38,34 +38,34 @@ class EntryFilter:
     - Strategy-specific thresholds
     """
     
-    # Thresholds by risk level
+    # Thresholds by risk level - LOWERED for more frequent signals
     CONFIDENCE_THRESHOLDS = {
-        RiskLevel.LOW: 0.65,
-        RiskLevel.MEDIUM: 0.60,
-        RiskLevel.HIGH: 0.55,
-        RiskLevel.AGGRESSIVE: 0.50
+        RiskLevel.LOW: 0.50,      # Lowered from 0.65
+        RiskLevel.MEDIUM: 0.45,   # Lowered from 0.60
+        RiskLevel.HIGH: 0.40,     # Lowered from 0.55
+        RiskLevel.AGGRESSIVE: 0.35  # Lowered from 0.50
     }
     
-    # Strategy-specific confidence overrides (higher = stricter)
+    # Strategy-specific confidence overrides - LOWERED for testing
     STRATEGY_CONFIDENCE_OVERRIDES = {
-        "AMT": 0.75,        # Accumulator needs higher confidence
-        "SNIPER": 0.80,     # Sniper is ultra-selective
-        "TERMINAL": 0.65,
-        "TICK_PICKER": 0.60,
-        "DIGITPAD": 0.60,
-        "LDP": 0.60,
-        "MULTI_INDICATOR": 0.60
+        "AMT": 0.55,        # Lowered from 0.75
+        "SNIPER": 0.60,     # Lowered from 0.80
+        "TERMINAL": 0.50,   # Lowered from 0.65
+        "TICK_PICKER": 0.45,  # Lowered from 0.60
+        "DIGITPAD": 0.45,   # Lowered from 0.60
+        "LDP": 0.45,        # Lowered from 0.60
+        "MULTI_INDICATOR": 0.45  # Lowered from 0.60
     }
     
-    # Strategy-specific minimum cooldown (seconds)
+    # Strategy-specific minimum cooldown (seconds) - REDUCED for testing
     STRATEGY_COOLDOWNS = {
-        "AMT": 30,          # 30 seconds between AMT trades
-        "SNIPER": 45,       # 45 seconds for sniper
-        "DEFAULT": 10
+        "AMT": 15,          # Reduced from 30 seconds
+        "SNIPER": 20,       # Reduced from 45 seconds
+        "DEFAULT": 5        # Reduced from 10 seconds
     }
     
-    MIN_ENTRY_SCORE = 55
-    HIGH_ENTRY_SCORE = 80
+    MIN_ENTRY_SCORE = 40  # Lowered from 55 for more signals
+    HIGH_ENTRY_SCORE = 70  # Lowered from 80
     
     # Scoring weights
     WEIGHTS = {
@@ -106,7 +106,6 @@ class EntryFilter:
     
     def _check_cooldown(self) -> bool:
         """Check if cooldown period has passed"""
-        import time
         cooldown = self.STRATEGY_COOLDOWNS.get(
             self.strategy_name, 
             self.STRATEGY_COOLDOWNS["DEFAULT"]
@@ -190,7 +189,8 @@ class EntryFilter:
             scores["trend_alignment"] = max(0, scores["trend_alignment"] - 10)
         
         # 4. Session time
-        current_hour = time.gmtime().tm_hour
+        import time as time_module
+        current_hour = time_module.gmtime().tm_hour
         active_sessions = []
         
         for session, (start, end) in self.SESSIONS.items():
@@ -226,8 +226,7 @@ class EntryFilter:
         # Update stats and last signal time
         if passed:
             self.stats["passed"] += 1
-            import time
-            self.last_signal_time = time.time()
+            self.last_signal_time = time_module.time()
         else:
             self.stats["blocked"] += 1
             for reason in reasons:
@@ -243,9 +242,11 @@ class EntryFilter:
             adjustments=adjustments
         )
         
-        logger.debug(
-            f"Entry filter: {'PASSED' if passed else 'BLOCKED'} "
-            f"Score: {total_score:.1f} | Reasons: {', '.join(reasons) or 'None'}"
+        # Changed to info level for better visibility
+        logger.info(
+            f"📋 Entry filter: {'✅ PASSED' if passed else '❌ BLOCKED'} "
+            f"Score: {total_score:.1f}/{self.MIN_ENTRY_SCORE} | Confidence: {confidence:.2f}/{conf_threshold:.2f} | "
+            f"Reasons: {', '.join(reasons) or 'All clear'}"
         )
         
         return result

@@ -32,18 +32,20 @@ class TickAnalyzerStrategy:
     - Support/Resistance detection
     """
     
-    MIN_STREAK = 3
-    REVERSAL_STREAK = 5
+    # Thresholds - LOWERED for more signals
+    MIN_STREAK = 2  # Lowered from 3
+    REVERSAL_STREAK = 4  # Lowered from 5
     SHORT_WINDOW = 5
     MEDIUM_WINDOW = 10
     LONG_WINDOW = 20
+    MIN_TICKS = 20  # Added for consistency
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
         self.tick_history: deque = deque(maxlen=200)
         self.prices: deque = deque(maxlen=200)
         self.last_signal_time = 0
-        self.signal_cooldown = 8  # seconds
+        self.signal_cooldown = 4  # Reduced from 8 seconds
     
     def add_tick(self, tick: Dict[str, Any]) -> Optional[TickSignal]:
         """Add tick and analyze for patterns"""
@@ -60,7 +62,7 @@ class TickAnalyzerStrategy:
             return None
         
         # Need minimum data
-        if len(self.prices) < self.LONG_WINDOW:
+        if len(self.prices) < self.MIN_TICKS:
             return None
         
         return self._analyze()

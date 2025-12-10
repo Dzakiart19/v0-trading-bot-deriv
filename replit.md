@@ -55,6 +55,18 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
 
 ## Recent Changes
+- 2025-12-10: **CRITICAL FIX - Signal Generation** - Lowered all strategy thresholds to generate more signals:
+  - MultiIndicatorStrategy: MIN_CONFLUENCE 40→25, MIN_CONFIDENCE 0.55→0.40, COOLDOWN 12s→5s
+  - TerminalStrategy: MIN_CONFIDENCE 0.75→0.55, MIN_TICKS 30→20, COOLDOWN 3s→2s
+  - SniperStrategy: MIN_CONFIDENCE 0.78→0.60, MIN_CONFIRMATIONS 2→1, COOLDOWN 10s→5s
+  - TickPickerStrategy: MIN_CONFIDENCE 0.55→0.45, MIN_TICKS 30→20, COOLDOWN 3s→2s
+  - DigitPadStrategy: MIN_CONFIDENCE 0.55→0.45, MIN_TICKS 50→30, COOLDOWN 5s→3s
+  - LDPStrategy: MIN_TICKS 50→30, STREAK_THRESHOLD 4→3, COOLDOWN 5s→3s
+  - AccumulatorStrategy: MIN_CONFIDENCE 0.75→0.55, MIN_TICKS 30→20, cooldowns reduced
+  - TickAnalyzerStrategy: REVERSAL_STREAK 5→4, MIN_TICKS added 20, COOLDOWN 8s→4s
+- 2025-12-10: **EntryFilter Thresholds Lowered** - MIN_ENTRY_SCORE 55→40, all confidence thresholds reduced by ~15%
+- 2025-12-10: **Verbose Logging** - Added comprehensive tick-by-tick logging in trading.py _on_tick() with warmup progress, cooldown status, and strategy data points
+- 2025-12-10: **Entry Filter Logging** - Changed to info level with emoji indicators for better visibility
 - 2025-12-10: **FIX - Entry Price = 0 Bug** - Added fallback chain for entry_price: entry_spot → entry_tick_price → buy_price to ensure analytics always have valid entry price
 - 2025-12-10: **Enhanced Logging** - Added comprehensive emoji-based logging throughout trade flow (_on_tick, _process_signal, _execute_trade_worker) for easier debugging
 - 2025-12-10: **Error Handling** - Added try-except wrappers in signal processing to catch and log errors without crashing the bot

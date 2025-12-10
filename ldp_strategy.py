@@ -37,18 +37,18 @@ class LDPStrategy:
     - DIGITODD: Last digit is odd (1,3,5,7,9)
     """
     
-    MIN_TICKS = 50
-    HOT_THRESHOLD = 0.15  # 15% frequency = hot
-    COLD_THRESHOLD = 0.05  # 5% frequency = cold
-    STREAK_THRESHOLD = 4
-    ZONE_IMBALANCE_THRESHOLD = 0.25  # 25% difference
+    MIN_TICKS = 30  # Reduced from 50 for faster warmup
+    HOT_THRESHOLD = 0.13  # Lowered from 0.15
+    COLD_THRESHOLD = 0.07  # Raised from 0.05 for more signals
+    STREAK_THRESHOLD = 3  # Lowered from 4
+    ZONE_IMBALANCE_THRESHOLD = 0.20  # Lowered from 0.25
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
         self.digit_history: deque = deque(maxlen=200)
         self.tick_history: deque = deque(maxlen=200)
         self.last_signal_time = 0
-        self.signal_cooldown = 5  # seconds
+        self.signal_cooldown = 3  # Reduced from 5 seconds
     
     def _get_last_digit(self, price: float) -> int:
         """Extract last digit from price"""

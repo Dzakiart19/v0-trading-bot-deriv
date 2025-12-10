@@ -78,8 +78,8 @@ class TerminalStrategy:
         RiskLevel.VERY_HIGH: {"multiplier": 2.5, "max_levels": 3}
     }
     
-    MIN_CONFIDENCE = 0.75  # 75% minimum for signal (slightly lowered for more frequent trades)
-    MIN_TICKS = 30  # Reduced for faster warmup
+    MIN_CONFIDENCE = 0.55  # Lowered from 0.75 for more frequent signals
+    MIN_TICKS = 20  # Reduced from 30 for faster warmup
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
@@ -100,7 +100,7 @@ class TerminalStrategy:
         # Signal history
         self.signals: deque = deque(maxlen=100)
         self.last_signal_time = 0
-        self.signal_cooldown = 3  # seconds (reduced for faster trading)
+        self.signal_cooldown = 2  # seconds (reduced from 3 for faster trading)
     
     def add_tick(self, tick: Dict[str, Any]) -> Optional[TerminalSignal]:
         """Add new tick data and analyze for signals"""
