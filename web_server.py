@@ -1329,7 +1329,9 @@ async def trading_status(telegram_id: int = Query(...)):
     if not trading_manager:
         # No trading manager - return idle status
         return {
+            "success": True,
             "is_running": False,
+            "total_trades": 0,
             "trades": 0,
             "wins": 0,
             "losses": 0,
@@ -1342,13 +1344,18 @@ async def trading_status(telegram_id: int = Query(...)):
     
     # Get status from trading manager
     status = trading_manager.get_status()
+    total_trades = status.get("trades", 0)
+    wins = status.get("wins", 0)
+    losses = status.get("losses", 0)
     
     return {
+        "success": True,
         "is_running": status.get("state") == TradingState.RUNNING.value,
-        "trades": status.get("trades", 0),
-        "wins": status.get("wins", 0),
-        "losses": status.get("losses", 0),
-        "profit": status.get("profit", 0.0),
+        "total_trades": total_trades,
+        "trades": total_trades,
+        "wins": wins,
+        "losses": losses,
+        "profit": status.get("session_profit", status.get("profit", 0.0)),
         "win_rate": status.get("win_rate", 0.0),
         "balance": status.get("balance", balance),
         "symbol": status.get("symbol", ""),
