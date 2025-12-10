@@ -1096,7 +1096,21 @@ class TradingManager:
         logger.debug(f"Contract update: status={status}, is_sold={is_sold}, is_closed={is_closed}")
         
         if is_closed:
-            profit = contract.get("profit", 0)
+            # For digit contracts, calculate profit from sell_price for accuracy
+            buy_price = self.active_trade.get("buy_price", 0)
+            sell_price = float(contract.get("sell_price", 0) or 0)
+            payout = float(contract.get("payout", 0) or 0)
+            
+            # Calculate profit: prefer sell_price - buy_price for digit contracts
+            if sell_price > 0 and buy_price > 0:
+                profit = sell_price - buy_price
+            else:
+                profit = contract.get("profit", 0)
+            
+            # Log profit calculation for verification
+            logger.info(f"Profit calculation: buy_price=${buy_price:.2f}, sell_price=${sell_price:.2f}, "
+                       f"payout=${payout:.2f}, profit_field=${contract.get('profit', 0)}, "
+                       f"final_profit=${profit:.2f}")
             
             # Get balance before recording
             balance_before = self.ws.get_balance() if self.ws else 0

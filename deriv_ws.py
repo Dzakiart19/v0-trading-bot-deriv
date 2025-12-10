@@ -396,12 +396,29 @@ class DerivWebSocket:
         contract_id = str(poc.get("contract_id", ""))
         
         if contract_id in self._active_contracts:
+            # Get buy_price from stored contract
+            buy_price = self._active_contracts[contract_id].get("buy_price", 0)
+            sell_price = float(poc.get("sell_price", 0)) if poc.get("sell_price") else 0
+            payout = float(poc.get("payout", 0)) if poc.get("payout") else self._active_contracts[contract_id].get("payout", 0)
+            
+            # For digit contracts, calculate profit from sell_price when contract is sold
+            if poc.get("is_sold") == 1 and sell_price > 0:
+                calculated_profit = sell_price - buy_price
+            else:
+                calculated_profit = float(poc.get("profit", 0))
+            
+            # Log detailed contract update for digit contracts
+            logger.info(f"Contract update detail: buy_price=${buy_price:.2f}, sell_price=${sell_price:.2f}, "
+                       f"profit_field=${poc.get('profit', 0)}, payout=${payout:.2f}, "
+                       f"calculated_profit=${calculated_profit:.2f}, is_sold={poc.get('is_sold')}")
+            
             self._active_contracts[contract_id].update({
                 "current_spot": poc.get("current_spot"),
-                "profit": float(poc.get("profit", 0)),
+                "profit": calculated_profit,  # Use calculated profit
                 "status": poc.get("status"),
                 "is_sold": poc.get("is_sold", 0) == 1,
-                "sell_price": float(poc.get("sell_price", 0)) if poc.get("sell_price") else None,
+                "sell_price": sell_price,
+                "payout": payout,  # Store payout for tracking
                 "exit_tick": poc.get("exit_tick"),
                 "exit_tick_time": poc.get("exit_tick_time")
             })
