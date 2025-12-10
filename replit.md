@@ -55,6 +55,13 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
 
 ## Recent Changes
+- 2025-12-10: **MAJOR FIX - Fibonacci Recovery** - Replaced aggressive 2x Martingale with Fibonacci sequence (1,1,2,3,5,8,13,21) for stake recovery
+- 2025-12-10: **Trade History Analyzer** - Added pattern detection and auto-pause after 3+ consecutive losses
+- 2025-12-10: **Performance Monitor** - Real-time metrics tracking with /api/metrics endpoint
+- 2025-12-10: **User Preferences** - Persistent settings storage in config/users/
+- 2025-12-10: **Dynamic Session Limits** - Strategy-specific loss limits (AMT=30%, SNIPER=15%, DIGITPAD=25%)
+- 2025-12-10: **Entry Filtering** - Strategy-specific confidence thresholds (AMT=75%, SNIPER=80%)
+- 2025-12-10: **Max Stake Cap** - Reduced from 20% to 10% of balance for safer trading
 - 2025-12-10: **Strategy Configurations** - Added `strategy_config.py` with stake options and trade count options for all 8 strategies
 - 2025-12-10: **API Endpoint** - Added `/api/strategy/configs` and `/api/strategy/{name}/config` endpoints
 - 2025-12-10: **AMT Trade Count UI** - Added trade count selection (5, 10, 20, 50, 100, Unlimited) to AMT webapp
@@ -95,3 +102,18 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - This ensures fresh start with no stale sessions from previous runs
 - Files are also deleted on shutdown for security
 - Cleanup runs BEFORE module imports to prevent singleton pre-loading stale data
+
+## Key Risk Management Features
+1. **Fibonacci-Based Recovery** - Stake recovery using sequence: 1, 1, 2, 3, 5, 8, 13, 21 (max 8 levels)
+2. **Auto-Pause** - Trading pauses after 3+ consecutive losses
+3. **Loss Warnings** - Notifications at 50%, 75%, 90% of session loss limit
+4. **Dynamic Limits** - Strategy-specific session loss limits (10-30% of balance)
+5. **Entry Filtering** - Minimum confidence thresholds per strategy
+6. **Max Stake Cap** - Never exceeds 10% of balance per trade
+
+## New Files Added
+- `hybrid_money_manager.py` - Fibonacci-based stake recovery system
+- `trade_analyzer.py` - Trade history analysis and pattern detection
+- `performance_monitor.py` - Real-time performance metrics
+- `user_preferences.py` - Persistent user settings storage
+- `entry_filter.py` - Signal filtering with strategy-specific thresholds
