@@ -27,6 +27,8 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
   - `digitpad.html` - DigitPad strategy UI
   - `amt.html` - AMT Accumulator strategy UI
   - `sniper.html` - Sniper strategy UI
+  - `multi-indicator.html` - Multi-Indicator strategy UI
+  - `ldp.html` - LDP (Last Digit Prediction) strategy UI
 
 ## API Endpoints
 - `GET /` - Main index page
@@ -55,6 +57,10 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
 
 ## Recent Changes
+- 2025-12-10: **NEW WebApps** - Added multi-indicator.html and ldp.html with full JavaScript functionality
+- 2025-12-10: **Routes Added** - Added /multi-indicator and /ldp routes to web_server.py
+- 2025-12-10: **Terminal Strategy Fix** - RSI thresholds corrected to 35/65 (oversold/overbought), Stochastic to 30/70
+- 2025-12-10: **LDP Strategy Fix** - HOT_THRESHOLD corrected to 0.12, COLD_THRESHOLD to 0.08 (logical: hot > cold)
 - 2025-12-10: **CRITICAL FIX - Signal Generation** - Lowered all strategy thresholds to generate more signals:
   - MultiIndicatorStrategy: MIN_CONFLUENCE 40→25, MIN_CONFIDENCE 0.55→0.40, COOLDOWN 12s→5s
   - TerminalStrategy: MIN_CONFIDENCE 0.75→0.55, MIN_TICKS 30→20, COOLDOWN 3s→2s
