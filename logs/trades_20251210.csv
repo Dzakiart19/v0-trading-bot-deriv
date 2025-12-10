@@ -1,3 +1,4 @@
 Date,Time,Symbol,Direction,Entry,Exit,Stake,Payout,Profit,Result,Martingale Level,Balance Before,Balance After,Win Rate,Strategy,Confidence,Confluence
 2025-12-10,04:13:26,R_100,SELL,0.0,580.92,1.0,0,-1.0,LOSS,1,7.5,7.5,0.0%,AMT,0.7,50.0
 2025-12-10,04:13:40,R_100,SELL,0.0,580.44,1.5,0,-1.5,LOSS,2,6.0,6.0,0.0%,AMT,0.7,50.0
+2025-12-10,05:10:30,R_100,SELL,0.0,588.59,1.0,0,-1.0,LOSS,1,0.23,0.23,0.0%,AMT,0.7,50.0
