@@ -69,10 +69,10 @@ class SniperStrategy:
         "REVERSAL_PATTERN"
     ]
     
-    # Thresholds - LOWERED for more frequent signals
-    MIN_CONFIDENCE = 0.60  # Lowered from 0.78 for more trades
-    MIN_CONFIRMATIONS = 1  # Lowered from 2 for more signals
-    MIN_TICKS = 30  # Reduced from 50 for faster warmup
+    # Thresholds - VERY LOW for maximum signals
+    MIN_CONFIDENCE = 0.30  # Very low for more trades
+    MIN_CONFIRMATIONS = 1  # Minimum confirmations
+    MIN_TICKS = 15  # Fast warmup
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol

@@ -37,11 +37,11 @@ class LDPStrategy:
     - DIGITODD: Last digit is odd (1,3,5,7,9)
     """
     
-    MIN_TICKS = 30  # Reduced from 50 for faster warmup
-    HOT_THRESHOLD = 0.13  # Lowered from 0.15
-    COLD_THRESHOLD = 0.07  # Raised from 0.05 for more signals
-    STREAK_THRESHOLD = 3  # Lowered from 4
-    ZONE_IMBALANCE_THRESHOLD = 0.20  # Lowered from 0.25
+    MIN_TICKS = 15  # Fast warmup
+    HOT_THRESHOLD = 0.11  # Very low hot detection
+    COLD_THRESHOLD = 0.09  # Higher cold detection for more signals
+    STREAK_THRESHOLD = 1  # Minimum streak
+    ZONE_IMBALANCE_THRESHOLD = 0.10  # Very low imbalance
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol

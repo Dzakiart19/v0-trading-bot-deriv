@@ -46,13 +46,13 @@ class DigitPadStrategy:
     - Signals Chart integration
     """
     
-    # Thresholds - LOWERED for more signals
-    HOT_THRESHOLD = 0.13  # Lowered from 0.15
-    COLD_THRESHOLD = 0.07  # Raised from 0.05 for more signals
-    STREAK_THRESHOLD = 2  # Lowered from 3
-    ZONE_IMBALANCE_THRESHOLD = 0.20  # Lowered from 0.25
-    MIN_CONFIDENCE = 0.45  # Lowered from 0.55
-    MIN_TICKS = 30  # Reduced from 50
+    # Thresholds - VERY LOW for maximum signals
+    HOT_THRESHOLD = 0.11  # Very low hot detection
+    COLD_THRESHOLD = 0.09  # Higher cold detection
+    STREAK_THRESHOLD = 1  # Minimum streak
+    ZONE_IMBALANCE_THRESHOLD = 0.10  # Very low imbalance
+    MIN_CONFIDENCE = 0.25  # Very low confidence
+    MIN_TICKS = 15  # Fast warmup
     
     # Supported symbols
     SUPPORTED_SYMBOLS = [

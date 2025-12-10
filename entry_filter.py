@@ -38,33 +38,33 @@ class EntryFilter:
     - Strategy-specific thresholds
     """
     
-    # Thresholds by risk level - LOWERED for more frequent signals
+    # Thresholds by risk level - VERY LOW for maximum signals
     CONFIDENCE_THRESHOLDS = {
-        RiskLevel.LOW: 0.50,      # Lowered from 0.65
-        RiskLevel.MEDIUM: 0.45,   # Lowered from 0.60
-        RiskLevel.HIGH: 0.40,     # Lowered from 0.55
-        RiskLevel.AGGRESSIVE: 0.35  # Lowered from 0.50
+        RiskLevel.LOW: 0.30,      # Very low
+        RiskLevel.MEDIUM: 0.25,   # Very low
+        RiskLevel.HIGH: 0.20,     # Very low
+        RiskLevel.AGGRESSIVE: 0.15  # Minimum
     }
     
-    # Strategy-specific confidence overrides - LOWERED for testing
+    # Strategy-specific confidence overrides - VERY LOW for testing
     STRATEGY_CONFIDENCE_OVERRIDES = {
-        "AMT": 0.55,        # Lowered from 0.75
-        "SNIPER": 0.60,     # Lowered from 0.80
-        "TERMINAL": 0.50,   # Lowered from 0.65
-        "TICK_PICKER": 0.45,  # Lowered from 0.60
-        "DIGITPAD": 0.45,   # Lowered from 0.60
-        "LDP": 0.45,        # Lowered from 0.60
-        "MULTI_INDICATOR": 0.45  # Lowered from 0.60
+        "AMT": 0.30,        # Very low
+        "SNIPER": 0.40,     # Lowered
+        "TERMINAL": 0.30,   # Very low
+        "TICK_PICKER": 0.30,  # Very low
+        "DIGITPAD": 0.30,   # Very low
+        "LDP": 0.30,        # Very low
+        "MULTI_INDICATOR": 0.30  # Very low
     }
     
-    # Strategy-specific minimum cooldown (seconds) - REDUCED for testing
+    # Strategy-specific minimum cooldown (seconds) - MINIMAL
     STRATEGY_COOLDOWNS = {
-        "AMT": 15,          # Reduced from 30 seconds
-        "SNIPER": 20,       # Reduced from 45 seconds
-        "DEFAULT": 5        # Reduced from 10 seconds
+        "AMT": 3,           # Very fast
+        "SNIPER": 5,        # Fast
+        "DEFAULT": 2        # Very fast
     }
     
-    MIN_ENTRY_SCORE = 40  # Lowered from 55 for more signals
+    MIN_ENTRY_SCORE = 20  # Very low for more signals
     HIGH_ENTRY_SCORE = 70  # Lowered from 80
     
     # Scoring weights

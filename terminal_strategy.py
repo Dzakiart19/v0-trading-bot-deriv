@@ -78,8 +78,8 @@ class TerminalStrategy:
         RiskLevel.VERY_HIGH: {"multiplier": 2.5, "max_levels": 3}
     }
     
-    MIN_CONFIDENCE = 0.55  # Lowered from 0.75 for more frequent signals
-    MIN_TICKS = 20  # Reduced from 30 for faster warmup
+    MIN_CONFIDENCE = 0.30  # Lowered drastically for more frequent signals
+    MIN_TICKS = 15  # Reduced for faster warmup
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
@@ -140,14 +140,9 @@ class TerminalStrategy:
         if direction is None:
             return None
         
-        # Check if meets minimum confidence
-        if not self.smart_analysis_enabled:
-            # Without smart analysis, use lower threshold
-            if probability < 0.60:
-                return None
-        else:
-            if probability < self.MIN_CONFIDENCE:
-                return None
+        # Check if meets minimum confidence - VERY RELAXED
+        if probability < 0.20:  # Very low threshold
+            return None
         
         # Calculate risk level
         risk_level = self._assess_risk(indicator_scores)
@@ -185,15 +180,15 @@ class TerminalStrategy:
         """Calculate scores for each indicator"""
         scores = {}
         
-        # RSI Analysis
+        # RSI Analysis - RELAXED for more signals
         rsi = self.indicators.calculate_rsi(self.prices, 14)
         if rsi is not None:
-            if rsi < 30:
-                scores["rsi"] = {"value": rsi, "signal": "BUY", "strength": (30 - rsi) / 30}
-            elif rsi > 70:
-                scores["rsi"] = {"value": rsi, "signal": "SELL", "strength": (rsi - 70) / 30}
+            if rsi < 45:  # Expanded from 30
+                scores["rsi"] = {"value": rsi, "signal": "BUY", "strength": max(0.3, (45 - rsi) / 45)}
+            elif rsi > 55:  # Lowered from 70
+                scores["rsi"] = {"value": rsi, "signal": "SELL", "strength": max(0.3, (rsi - 55) / 45)}
             else:
-                scores["rsi"] = {"value": rsi, "signal": "NEUTRAL", "strength": 0}
+                scores["rsi"] = {"value": rsi, "signal": "NEUTRAL", "strength": 0.1}
         
         # EMA Crossover
         ema_9 = self.indicators.calculate_ema(self.prices, 9)
@@ -219,15 +214,15 @@ class TerminalStrategy:
             else:
                 scores["macd"] = {"value": histogram, "signal": "NEUTRAL", "strength": 0}
         
-        # Stochastic
+        # Stochastic - RELAXED for more signals
         stoch = self.indicators.calculate_stochastic(self.prices, 14)
         if stoch is not None:
-            if stoch < 20:
-                scores["stochastic"] = {"value": stoch, "signal": "BUY", "strength": (20 - stoch) / 20}
-            elif stoch > 80:
-                scores["stochastic"] = {"value": stoch, "signal": "SELL", "strength": (stoch - 80) / 20}
+            if stoch < 45:  # Expanded from 20
+                scores["stochastic"] = {"value": stoch, "signal": "BUY", "strength": max(0.3, (45 - stoch) / 45)}
+            elif stoch > 55:  # Lowered from 80
+                scores["stochastic"] = {"value": stoch, "signal": "SELL", "strength": max(0.3, (stoch - 55) / 45)}
             else:
-                scores["stochastic"] = {"value": stoch, "signal": "NEUTRAL", "strength": 0}
+                scores["stochastic"] = {"value": stoch, "signal": "NEUTRAL", "strength": 0.1}
         
         # ADX (Trend Strength)
         adx = self.indicators.calculate_adx(self.prices, 14)
@@ -280,13 +275,17 @@ class TerminalStrategy:
                 elif signal == "SELL":
                     sell_votes += strength * self.WEIGHTS.get(indicator, 0.25)
         
-        # Need clear majority
-        if buy_votes > sell_votes and buy_votes > 0.3:
+        # Need any direction bias - VERY RELAXED
+        if buy_votes > sell_votes and buy_votes > 0.05:
             return "BUY"
-        elif sell_votes > buy_votes and sell_votes > 0.3:
+        elif sell_votes > buy_votes and sell_votes > 0.05:
+            return "SELL"
+        elif buy_votes > 0:
+            return "BUY"
+        elif sell_votes > 0:
             return "SELL"
         
-        return None
+        return "BUY"  # Default to BUY if no clear direction
     
     def _assess_risk(self, scores: Dict[str, Any]) -> RiskLevel:
         """Assess risk level based on market conditions"""

@@ -54,11 +54,11 @@ class TickPickerStrategy:
     MEDIUM_WINDOW = 10
     LONG_WINDOW = 20
     
-    # Thresholds - LOWERED for more signals
-    STREAK_THRESHOLD = 2  # Lowered from 3
-    REVERSAL_THRESHOLD = 4  # Lowered from 5
-    MIN_CONFIDENCE = 0.45  # Lowered from 0.55
-    MIN_TICKS = 20  # Reduced from 30
+    # Thresholds - VERY LOW for maximum signals
+    STREAK_THRESHOLD = 1  # Minimum streak
+    REVERSAL_THRESHOLD = 2  # Low reversal threshold
+    MIN_CONFIDENCE = 0.25  # Very low confidence
+    MIN_TICKS = 10  # Fast warmup
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
