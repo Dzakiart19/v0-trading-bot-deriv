@@ -1,0 +1,233 @@
+PROMPT PERBAIKAN PROYEK - DERIV AUTO TRADING BOT
+
+========================================
+MASALAH UTAMA
+========================================
+
+Login gagal dengan error: "Authorization request timed out. Please check your internet connection."
+
+Root Cause:
+- WebSocket berhasil connect ke Deriv API
+- Ping request berhasil (req_id=1)
+- Authorization request timeout setelah 30 detik
+- Tidak ada response dari Deriv server untuk authorize request
+- Session dibersihkan setelah timeout
+
+========================================
+REKOMENDASI PERBAIKAN
+========================================
+
+PRIORITAS TINGGI - Implementasi Retry Mechanism
+-------------------------------------------------
+
+1. Tambahkan retry logic untuk authorization
+   - 3 attempts dengan exponential backoff
+   - Timeout per attempt: 20 detik
+   - Delay antar retry: 2s, 5s, 10s
+
+2. Perbaiki request/response matching
+   - Verifikasi req_id consistency (int vs string)
+   - Tambah logging detail untuk setiap attempt
+   - Pastikan response handler tidak drop messages
+
+3. Pre-authorization health check
+   - Ping test sebelum authorize
+   - Validate token format
+   - Check WebSocket readyState
+
+PRIORITAS SEDANG - Error Handling
+----------------------------------
+
+4. Improve error messaging
+   - Bedakan: timeout vs invalid token vs network issue
+   - Berikan actionable feedback
+   - Tampilkan detail error dari Deriv API
+
+5. Connection diagnostics
+   - Log RTT untuk ping
+   - Track authorization response time
+   - Monitor WebSocket message queue
+
+6. Optimize WebSocket initialization
+   - Reduce connection timeout 15s → 10s
+   - Parallel ping dan authorize jika memungkinkan
+   - Cache authorization untuk reconnect
+
+PRIORITAS RENDAH - User Experience
+-----------------------------------
+
+7. Loading indicator dengan progress
+8. Retry countdown display
+9. Troubleshooting tips dalam error message
+10. Alternative endpoint fallback
+11. Token refresh flow
+12. Graceful degradation
+
+========================================
+FILE YANG PERLU DIUBAH
+========================================
+
+deriv_ws.py:
+- Method authorize(): Tambah retry logic dengan exponential backoff
+- Method _send_and_wait(): Fix response ID matching, tambah detailed logging
+- Method connect(): Add health check sebelum authorize
+
+telegram_bot.py:
+- Method _connect_deriv(): Better error handling dengan retry feedback
+- Tambah user notification untuk setiap retry attempt
+- Tampilkan error yang lebih informatif
+
+========================================
+IMPLEMENTASI KODE
+========================================
+
+File: deriv_ws.py
+Method: authorize()
+
+Tambahkan retry logic:
+
+async def authorize(self, token: str, max_retries: int = 3) -> dict:
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Pre-check: validate token format
+            if not token or len(token) < 10:
+                raise ValueError("Invalid token format")
+            
+            # Pre-check: ping test
+            await self._send_and_wait({'ping': 1}, timeout=5.0)
+            
+            # Authorization attempt
+            timeout = 20.0  # Reduce from 30s to 20s
+            response = await self._send_and_wait({
+                'authorize': token
+            }, timeout=timeout)
+            
+            return response
+            
+        except asyncio.TimeoutError:
+            wait_time = 2 ** attempt  # Exponential backoff: 2s, 4s, 8s
+            if attempt < max_retries:
+                logger.warning(f"Attempt {attempt}/{max_retries} failed. Retrying in {wait_time}s...")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.error(f"All {max_retries} authorization attempts failed")
+                raise
+
+
+File: telegram_bot.py
+Method: _connect_deriv()
+
+Tambahkan retry notification:
+
+async def _connect_deriv(self, user_id: int, token: str, account_type: str):
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="🔄 Connecting to Deriv..."
+    )
+    
+    try:
+        ws_client = DerivWebSocket()
+        await ws_client.connect()
+        
+        # Authorization with retry feedback
+        for attempt in range(1, 4):
+            try:
+                await ws_client.authorize(token)
+                break
+            except asyncio.TimeoutError:
+                if attempt < 3:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"⚠️ Attempt {attempt}/3 timeout. Retrying..."
+                    )
+                else:
+                    raise
+        
+        # Success
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="✅ Connected successfully!"
+        )
+        
+    except Exception as e:
+        error_msg = self._get_detailed_error_message(e)
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"❌ Login Failed\n\n{error_msg}"
+        )
+
+def _get_detailed_error_message(self, error):
+    if "timeout" in str(error).lower():
+        return (
+            "Connection timeout - kemungkinan:\n"
+            "1. Koneksi internet lambat\n"
+            "2. Deriv server sedang sibuk\n"
+            "3. Token tidak valid\n\n"
+            "Solusi:\n"
+            "- Cek koneksi internet\n"
+            "- Generate token baru di Deriv\n"
+            "- Coba lagi beberapa saat"
+        )
+    elif "invalid" in str(error).lower():
+        return "Token tidak valid. Generate token baru di Deriv."
+    else:
+        return f"Error: {str(error)}"
+
+========================================
+TESTING CHECKLIST
+========================================
+
+☐ Test dengan token valid pada network normal
+☐ Test dengan token valid pada network lambat (throttle connection)
+☐ Test dengan token invalid
+☐ Test dengan token expired
+☐ Test reconnection setelah timeout
+☐ Test retry mechanism (harus retry 3x sebelum fail)
+☐ Verify user mendapat notifikasi untuk setiap retry
+☐ Verify error message informatif dan actionable
+
+========================================
+ESTIMASI WAKTU
+========================================
+
+- Implementasi retry mechanism: 30 menit
+- Fix request/response matching: 20 menit
+- Improve error handling: 20 menit
+- Testing: 20 menit
+
+Total: ~90 menit
+
+========================================
+LANGKAH DEPLOY
+========================================
+
+1. Backup deriv_ws.py dan telegram_bot.py
+2. Implementasi perubahan di deriv_ws.py
+3. Test authorization dengan token valid
+4. Implementasi perubahan di telegram_bot.py
+5. Test end-to-end flow dari Telegram
+6. Monitor logs untuk verify retry mechanism bekerja
+7. Deploy ke production
+
+========================================
+TROUBLESHOOTING
+========================================
+
+Jika masih timeout setelah perbaikan:
+
+1. Check Deriv API status: https://api-status.deriv.com
+2. Verify DERIV_APP_ID benar (saat ini: 114791)
+3. Test dengan curl/postman untuk isolate masalah
+4. Check Replit outbound connection limits
+5. Try alternative Deriv endpoint jika ada
+6. Contact Deriv support jika persist
+
+========================================
+NEXT STEPS
+========================================
+
+1. Copy kode implementasi di atas
+2. Paste ke deriv_ws.py dan telegram_bot.py
+3. Test dengan /login command di Telegram
+4. Monitor logs untuk verify retry bekerja
+5. Jika berhasil, lanjut ke perbaikan user preferences
