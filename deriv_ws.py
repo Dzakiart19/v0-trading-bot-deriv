@@ -908,7 +908,7 @@ class DerivWebSocket:
         logger.info(f"Executing buy for proposal {proposal_id}")
         buy_resp = self._send_and_wait({
             "buy": proposal_id,
-            "price": stake
+            "price": round(float(stake), 2)  # Round to 2 decimal places
         }, timeout=30, retries=1)
         
         if buy_resp and "buy" in buy_resp:
@@ -1002,7 +1002,7 @@ class DerivWebSocket:
         # Execute buy
         buy_resp = self._send_and_wait({
             "buy": proposal_id,
-            "price": stake
+            "price": round(float(stake), 2)  # Round to 2 decimal places
         }, timeout=30, retries=1)
         
         if buy_resp and "buy" in buy_resp:
