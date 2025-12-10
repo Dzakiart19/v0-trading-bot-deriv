@@ -1,0 +1,1 @@
+{"config": {"symbol": "R_100", "strategy": "TERMINAL", "base_stake": 10.0, "use_martingale": true}, "session": {"trades": 0, "wins": 0, "losses": 0, "profit": 0.0, "starting_balance": 10000.0, "martingale_level": 0}, "timestamp": "2025-12-10T06:26:39.380536"}
