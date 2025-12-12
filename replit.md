@@ -57,6 +57,19 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
 
 ## Recent Changes
+- 2025-12-12: **CRITICAL FIX - Telegram Bot Conflict** - Fixed "Conflict: terminated by other getUpdates request" error:
+  - Added `drop_pending_updates=True` to `start_polling()` to clear stale updates
+  - Added `allowed_updates` filter for better performance
+  - Implemented graceful shutdown sequence (stop trading managers → disconnect WebSockets → stop application)
+- 2025-12-12: **CRITICAL FIX - WebSocket Heartbeat** - Fixed connection timeout issues:
+  - Server now properly updates `last_pong` timestamp when receiving pong from client
+  - All 7 WebApp HTML files now send pong response when receiving ping from server
+  - Complete bidirectional heartbeat: server ping → client pong → server update timestamp
+- 2025-12-12: **Trading Logging Optimization** - Reduced INFO logging to prevent log flooding:
+  - First tick logged at INFO level
+  - Heartbeat log every 5 minutes at INFO level
+  - All other ticks logged at DEBUG level
+  - Warmup progress logged at 50% and 100% completion only
 - 2025-12-10: **Authorization Retry Mechanism** - Fixed login timeout issues:
   - `deriv_ws.py authorize()`: Added 3-attempt retry with exponential backoff (2s, 4s delays)
   - Pre-authorization ping test to verify connection stability
