@@ -520,10 +520,26 @@ class TradingManager:
     def _on_tick(self, tick: Dict[str, Any]):
         """Handle incoming tick data - Auto process signals"""
         try:
-            # VERBOSE LOGGING: Track tick receipt (safely convert to float)
+            # Track tick receipt (safely convert to float)
             tick_quote = float(tick.get('quote', 0) or 0)
             tick_epoch = tick.get('epoch', 0)
-            logger.debug(f"📥 TICK RECEIVED | Quote: {tick_quote:.5f} | Epoch: {tick_epoch}")
+            
+            # Track tick count for stall detection
+            if not hasattr(self, '_tick_counter'):
+                self._tick_counter = 0
+                self._last_tick_log_time = 0
+            self._tick_counter += 1
+            
+            # Log sparingly at INFO: first tick, and every 5 minutes for heartbeat confirmation
+            import time as _time
+            current_time = _time.time()
+            if self._tick_counter == 1:
+                logger.info(f"📥 FIRST TICK received | Quote: {tick_quote:.5f} | Counter started")
+            elif current_time - self._last_tick_log_time >= 300:  # Every 5 minutes
+                logger.info(f"📥 TICK HEARTBEAT | Total: {self._tick_counter} ticks | Latest: {tick_quote:.5f}")
+                self._last_tick_log_time = current_time
+            else:
+                logger.debug(f"📥 TICK #{self._tick_counter} | Quote: {tick_quote:.5f} | Epoch: {tick_epoch}")
             
             if self.state != TradingState.RUNNING:
                 logger.debug(f"⏸️ Tick ignored - state is {self.state.value}")
@@ -564,23 +580,33 @@ class TradingManager:
                         # Other strategies take (tick) only
                         signal = self.strategy.add_tick(tick)
                     
-                    # Log analysis result
+                    # Log analysis result - keep most at DEBUG level
                     if signal is None:
                         # Try to get more info about why no signal
                         cooldown_info = ""
+                        in_cooldown = False
                         if hasattr(self.strategy, 'last_signal_time'):
                             elapsed = time.time() - self.strategy.last_signal_time
                             cooldown = getattr(self.strategy, 'signal_cooldown', 
                                              getattr(self.strategy, 'SIGNAL_COOLDOWN', 12))
                             if elapsed < cooldown:
                                 cooldown_info = f" (cooldown: {elapsed:.1f}s/{cooldown}s)"
+                                in_cooldown = True
                         
                         min_ticks = getattr(self.strategy, 'MIN_TICKS', 
                                           getattr(self.strategy, 'min_ticks', 50))
                         if strategy_ticks < min_ticks:
-                            logger.debug(f"📈 Warming up: {strategy_ticks}/{min_ticks} ticks needed{cooldown_info}")
+                            # Log warmup once at 50% and 100% completion
+                            if strategy_ticks == min_ticks // 2:
+                                logger.info(f"📈 Warmup 50%: {strategy_ticks}/{min_ticks} ticks{cooldown_info}")
+                            elif strategy_ticks == min_ticks - 1:
+                                logger.info(f"📈 Warmup complete: {min_ticks} ticks ready{cooldown_info}")
+                            else:
+                                logger.debug(f"📈 Warming up: {strategy_ticks}/{min_ticks}{cooldown_info}")
+                        elif in_cooldown:
+                            logger.debug(f"⏳ In cooldown{cooldown_info}")
                         else:
-                            logger.debug(f"🔍 No signal generated - analyzing market{cooldown_info}")
+                            logger.debug(f"🔍 No signal - analyzing market")
                 except Exception as strategy_error:
                     logger.error(f"Strategy add_tick error: {strategy_error}", exc_info=True)
                     signal = None

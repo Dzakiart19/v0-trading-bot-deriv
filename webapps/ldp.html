@@ -601,6 +601,13 @@
                     try {
                         const data = JSON.parse(event.data);
                         handleTradingEvent(data);
+                        
+                        // CRITICAL: Respond to server ping with pong to prevent timeout disconnect
+                        if (data.type === 'ping') {
+                            botWs.send(JSON.stringify({ type: 'pong' }));
+                            console.log('WS pong sent in response to server ping');
+                        }
+                        if (data.type === 'pong') console.log('WS pong received');
                     } catch (e) {
                         console.error('Error parsing WebSocket message:', e);
                     }

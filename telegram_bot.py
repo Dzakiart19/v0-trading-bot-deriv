@@ -129,27 +129,63 @@ class TelegramBot:
         self._user_context: Dict[str, Any] = {}
     
     async def start(self):
-        """Start the Telegram bot"""
+        """Start the Telegram bot with proper cleanup to prevent conflicts"""
         self.application = Application.builder().token(self.token).build()
         self._register_handlers()
         
         await self.application.initialize()
         await self.application.start()
-        await self.application.updater.start_polling()
         
-        logger.info("Telegram bot started")
+        # CRITICAL: drop_pending_updates prevents "Conflict: terminated by other getUpdates request" error
+        # This happens when multiple bot instances or stale webhook requests exist
+        await self.application.updater.start_polling(
+            drop_pending_updates=True,  # Clear old updates to prevent conflicts
+            allowed_updates=["message", "callback_query", "inline_query"]  # Only listen to what we need
+        )
+        
+        logger.info("Telegram bot started with drop_pending_updates=True")
     
     async def stop(self):
-        """Stop the Telegram bot"""
+        """Stop the Telegram bot gracefully"""
+        logger.info("Stopping Telegram bot gracefully...")
+        
+        # First stop all trading managers to prevent orphaned trades
+        for user_id, tm in list(self._trading_managers.items()):
+            try:
+                tm.stop()
+                logger.info(f"Stopped trading manager for user {user_id}")
+            except Exception as e:
+                logger.error(f"Error stopping trading manager for {user_id}: {e}")
+        self._trading_managers.clear()
+        
+        # Disconnect all WebSocket connections
+        for user_id, ws in list(self._ws_connections.items()):
+            try:
+                ws.disconnect()
+                logger.info(f"Disconnected WebSocket for user {user_id}")
+            except Exception as e:
+                logger.error(f"Error disconnecting WebSocket for {user_id}: {e}")
+        self._ws_connections.clear()
+        
+        # Stop the Telegram application with proper order
         if self.application:
-            await self.application.updater.stop()
-            await self.application.stop()
-            await self.application.shutdown()
+            try:
+                # Stop updater first (stops polling)
+                if self.application.updater and self.application.updater.running:
+                    await self.application.updater.stop()
+                    logger.info("Telegram updater stopped")
+                
+                # Then stop application
+                await self.application.stop()
+                logger.info("Telegram application stopped")
+                
+                # Finally shutdown
+                await self.application.shutdown()
+                logger.info("Telegram application shutdown complete")
+            except Exception as e:
+                logger.error(f"Error during Telegram bot shutdown: {e}")
         
-        for ws in self._ws_connections.values():
-            ws.disconnect()
-        
-        logger.info("Telegram bot stopped")
+        logger.info("Telegram bot stopped successfully")
     
     def _register_handlers(self):
         """Register command and callback handlers"""

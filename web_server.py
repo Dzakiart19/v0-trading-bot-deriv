@@ -1521,7 +1521,14 @@ async def websocket_endpoint(
                 })
             
             elif data.get("type") == "ping":
+                # Client sent ping, respond with pong
                 await websocket.send_json({"type": "pong"})
+            
+            elif data.get("type") == "pong":
+                # CRITICAL: Client responded to our ping - update last_pong timestamp
+                # This prevents "Connection timeout (no pong for X seconds)" errors
+                manager.update_pong(user_id)
+                logger.debug(f"Received pong from {user_id}, updated last_pong timestamp")
             
             elif data.get("type") == "sync_account":
                 account_data = data.get("data", {})
