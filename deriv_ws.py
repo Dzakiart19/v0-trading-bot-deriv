@@ -500,11 +500,11 @@ class DerivWebSocket:
         # Use a single shared event and collect all req_ids for this operation
         shared_event = threading.Event()
         all_req_ids = []
-        response_holder = {"data": None, "req_id": None}
+        response_holder: Dict[str, Any] = {"data": None, "req_id": None}
         
-        def create_response_handler(rid):
+        def create_response_handler(rid: int) -> Callable[[], None]:
             """Create a handler that sets shared event when any req_id responds"""
-            def handler():
+            def handler() -> None:
                 if rid in self._responses:
                     response_holder["data"] = self._responses.get(rid)
                     response_holder["req_id"] = rid

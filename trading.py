@@ -557,12 +557,15 @@ class TradingManager:
             # Log strategy info
             strategy_name = type(self.strategy).__name__
             strategy_ticks = 0
-            if hasattr(self.strategy, 'prices'):
-                strategy_ticks = len(self.strategy.prices)
-            elif hasattr(self.strategy, 'closes'):
-                strategy_ticks = len(self.strategy.closes)
-            elif hasattr(self.strategy, 'tick_history'):
-                strategy_ticks = len(self.strategy.tick_history)
+            prices_attr = getattr(self.strategy, 'prices', None)
+            closes_attr = getattr(self.strategy, 'closes', None)
+            tick_history_attr = getattr(self.strategy, 'tick_history', None)
+            if prices_attr is not None:
+                strategy_ticks = len(prices_attr)
+            elif closes_attr is not None:
+                strategy_ticks = len(closes_attr)
+            elif tick_history_attr is not None:
+                strategy_ticks = len(tick_history_attr)
             
             logger.debug(f"📊 Processing tick with {strategy_name} (data points: {strategy_ticks})")
             

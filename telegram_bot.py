@@ -10,8 +10,8 @@ import hashlib
 import threading
 import httpx
 import html
-from typing import Dict, Any, Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from typing import Dict, Any, Optional, Union, cast
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, User, CallbackQuery, Message
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     MessageHandler, filters, ContextTypes
@@ -108,9 +108,9 @@ class TelegramBot:
     MESSAGE_RATE_LIMIT = 1.0
     DEDUP_TTL = 60
     
-    def __init__(self, token: str, webapp_base_url: str = None):
+    def __init__(self, token: str, webapp_base_url: Optional[str] = None):
         self.token = token
-        self.webapp_base_url = webapp_base_url or os.environ.get("WEBAPP_BASE_URL", "https://your-domain.com")
+        self.webapp_base_url: str = webapp_base_url or os.environ.get("WEBAPP_BASE_URL", "https://your-domain.com")
         self.application: Optional[Application] = None
         
         # Per-user WebSocket and trading managers
@@ -187,8 +187,9 @@ class TelegramBot:
         
         logger.info("Telegram bot stopped successfully")
     
-    def _register_handlers(self):
+    def _register_handlers(self) -> None:
         """Register command and callback handlers"""
+        assert self.application is not None, "Application must be initialized before registering handlers"
         app = self.application
         
         # Commands
@@ -214,7 +215,7 @@ class TelegramBot:
             self._handle_message
         ))
     
-    def _get_webapp_url(self, user_id: int, strategy: str = None) -> str:
+    def _get_webapp_url(self, user_id: int, strategy: Optional[str] = None) -> str:
         """Get WebApp URL for user's selected strategy"""
         if strategy is None:
             strategy = self._user_strategies.get(user_id, "TERMINAL")
@@ -235,10 +236,13 @@ class TelegramBot:
     
     # ==================== Commands ====================
     
-    async def _cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command"""
         user = update.effective_user
-        chat_id = update.effective_chat.id
+        chat = update.effective_chat
+        if user is None or chat is None:
+            return
+        chat_id = chat.id
         
         lang = detect_language(user.language_code)
         set_user_language(user.id, lang)
@@ -249,9 +253,12 @@ class TelegramBot:
         else:
             await self._show_welcome(update, context)
     
-    async def _show_welcome(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _show_welcome(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show welcome screen with login options"""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            return
         lang = get_user_language(user.id)
         
         escaped_name = html.escape(user.first_name)
@@ -279,15 +286,17 @@ Silakan login untuk memulai:
             [InlineKeyboardButton("📖 Panduan", callback_data="menu_help")]
         ]
         
-        await update.message.reply_text(
+        await message.reply_text(
             text,
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-    async def _show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show main menu after login"""
         user = update.effective_user
+        if user is None:
+            return
         lang = get_user_language(user.id)
         
         ws = self._ws_connections.get(user.id)
@@ -347,9 +356,12 @@ Pilih menu:
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
-    async def _cmd_strategy(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _cmd_strategy(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /strategi command - Show strategy selection"""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            return
         selected = self._user_strategies.get(user.id, "TERMINAL")
         
         escaped_strategy_name = html.escape(STRATEGIES.get(selected, {}).get('name', selected))
@@ -373,18 +385,21 @@ Pilih strategi yang ingin digunakan:
         
         keyboard.append([InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")])
         
-        await update.message.reply_text(
+        await message.reply_text(
             text,
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-    async def _cmd_webapp(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _cmd_webapp(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /webapp command - Open WebApp"""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            return
         
         if not user_auth.is_logged_in(user.id):
-            await update.message.reply_text("❌ Silakan login terlebih dahulu dengan /login")
+            await message.reply_text("❌ Silakan login terlebih dahulu dengan /login")
             return
         
         selected_strategy = self._user_strategies.get(user.id, "TERMINAL")
@@ -408,19 +423,22 @@ Klik tombol di bawah untuk membuka WebApp:
             )
         ]]
         
-        await update.message.reply_text(
+        await message.reply_text(
             text,
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-    async def _cmd_login(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _cmd_login(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /login command"""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            return
         lang = get_user_language(user.id)
         
         if user_auth.is_logged_in(user.id):
-            await update.message.reply_text(
+            await message.reply_text(
                 "✅ Anda sudah login. Gunakan /logout untuk keluar terlebih dahulu."
             )
             return
@@ -432,15 +450,18 @@ Klik tombol di bawah untuk membuka WebApp:
             ]
         ]
         
-        await update.message.reply_text(
+        await message.reply_text(
             "🔐 <b>Login ke Deriv</b>\n\nPilih tipe akun:",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-    async def _cmd_logout(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _cmd_logout(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /logout command"""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            return
         
         if user.id in self._trading_managers:
             self._trading_managers[user.id].stop()
@@ -460,22 +481,25 @@ Klik tombol di bawah untuk membuka WebApp:
         
         user_auth.logout(user.id)
         
-        await update.message.reply_text("✅ Berhasil logout. Sampai jumpa!")
+        await message.reply_text("✅ Berhasil logout. Sampai jumpa!")
     
-    async def _cmd_account(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _cmd_account(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /akun command"""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            return
         
         if not user_auth.is_logged_in(user.id):
-            await update.message.reply_text("❌ Silakan login terlebih dahulu dengan /login")
+            await message.reply_text("❌ Silakan login terlebih dahulu dengan /login")
             return
         
         ws = self._ws_connections.get(user.id)
         if not ws or not ws.is_connected():
-            await update.message.reply_text("❌ Tidak terhubung ke Deriv. Silakan login ulang.")
+            await message.reply_text("❌ Tidak terhubung ke Deriv. Silakan login ulang.")
             return
         
-        account_type = user_auth.get_account_type(user.id)
+        account_type = user_auth.get_account_type(user.id) or "unknown"
         balance = ws.get_balance()
         currency = ws.get_currency()
         
@@ -494,18 +518,21 @@ Klik tombol di bawah untuk membuka WebApp:
             [InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")]
         ]
         
-        await update.message.reply_text(
+        await message.reply_text(
             text,
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-    async def _cmd_autotrade(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _cmd_autotrade(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /autotrade command"""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            return
         
         if not user_auth.is_logged_in(user.id):
-            await update.message.reply_text("❌ Silakan login terlebih dahulu dengan /login")
+            await message.reply_text("❌ Silakan login terlebih dahulu dengan /login")
             return
         
         if user.id in self._trading_managers:
@@ -516,7 +543,7 @@ Klik tombol di bawah untuk membuka WebApp:
                     [InlineKeyboardButton("🔄 Force Restart", callback_data="force_restart_trading")],
                     [InlineKeyboardButton("🔙 Menu", callback_data="menu_main")]
                 ]
-                await update.message.reply_text(
+                await message.reply_text(
                     "⚠️ <b>Trading sedang berjalan</b>\n\n"
                     "Pilih aksi:\n"
                     "• <b>Stop Trading</b> - Hentikan trading saat ini\n"
@@ -528,9 +555,11 @@ Klik tombol di bawah untuk membuka WebApp:
         
         await self._show_trading_setup(update, context)
     
-    async def _show_trading_setup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _show_trading_setup(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show trading setup menu"""
         user = update.effective_user
+        if user is None:
+            return
         
         selected_strategy = self._user_strategies.get(user.id, "TERMINAL")
         selected_symbol = self._user_context.get(f"selected_symbol_{user.id}", "R_100")
@@ -575,12 +604,15 @@ Klik tombol di bawah untuk memulai:"""
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
-    async def _cmd_stop(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _cmd_stop(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /stop command"""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            return
         
         if user.id not in self._trading_managers:
-            await update.message.reply_text("❌ Tidak ada trading yang berjalan.")
+            await message.reply_text("❌ Tidak ada trading yang berjalan.")
             return
         
         tm = self._trading_managers[user.id]
@@ -615,7 +647,7 @@ Klik tombol di bawah untuk memulai:"""
 
 Gunakan /strategi untuk trading lagi."""
         
-        await update.message.reply_text(stop_message, parse_mode=ParseMode.HTML)
+        await message.reply_text(stop_message, parse_mode=ParseMode.HTML)
     
     def force_stop_trading(self, user_id: int) -> Dict[str, Any]:
         """
@@ -686,19 +718,22 @@ Gunakan /strategi untuk trading lagi."""
             return None
         return self._trading_managers[user_id].state.value
     
-    async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /status command"""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            return
         
         if not user_auth.is_logged_in(user.id):
-            await update.message.reply_text("❌ Silakan login terlebih dahulu.")
+            await message.reply_text("❌ Silakan login terlebih dahulu.")
             return
         
         if user.id not in self._trading_managers:
             selected_strategy = self._user_strategies.get(user.id, "TERMINAL")
             strategy_info = STRATEGIES.get(selected_strategy, {})
             
-            await update.message.reply_text(
+            await message.reply_text(
                 f"💤 Status: IDLE\n📊 Strategi: {strategy_info.get('icon', '')} {strategy_info.get('name', '')}\n\nGunakan /autotrade untuk memulai."
             )
             return
@@ -720,10 +755,13 @@ Gunakan /strategi untuk trading lagi."""
 📉 Win Rate: {status['win_rate']:.1f}%
 """
         
-        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+        await message.reply_text(text, parse_mode=ParseMode.HTML)
     
-    async def _cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /help command"""
+        message = update.message
+        if message is None:
+            return
         text = """
 📖 <b>Panduan Deriv Auto Trading Bot</b>
 
@@ -755,12 +793,16 @@ Gunakan /strategi untuk trading lagi."""
 • Gunakan WebApp untuk kontrol lebih
 """
         
-        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+        await message.reply_text(text, parse_mode=ParseMode.HTML)
     
-    async def _cmd_pair(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _cmd_pair(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /pair command"""
+        user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            return
         symbols = get_short_term_symbols()
-        selected = self._user_context.get(f"selected_symbol_{update.effective_user.id}", "R_100")
+        selected = self._user_context.get(f"selected_symbol_{user.id}", "R_100")
         
         keyboard = []
         row = []
@@ -775,14 +817,17 @@ Gunakan /strategi untuk trading lagi."""
         
         keyboard.append([InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")])
         
-        await update.message.reply_text(
+        await message.reply_text(
             "💱 <b>Pilih Pair Trading:</b>\n\n" + html.escape(get_symbol_list_text()),
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-    async def _cmd_language(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _cmd_language(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /language command"""
+        message = update.message
+        if message is None:
+            return
         keyboard = []
         row = []
         
@@ -796,7 +841,7 @@ Gunakan /strategi untuk trading lagi."""
         
         keyboard.append([InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")])
         
-        await update.message.reply_text(
+        await message.reply_text(
             "🌍 <b>Pilih Bahasa / Select Language:</b>",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -804,13 +849,17 @@ Gunakan /strategi untuk trading lagi."""
     
     # ==================== Callback Handlers ====================
     
-    async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle callback queries"""
         query = update.callback_query
+        user = update.effective_user
+        if query is None or user is None:
+            return
         await query.answer()
         
-        user = update.effective_user
         data = query.data
+        if data is None:
+            return
         
         if data.startswith("login_"):
             await self._handle_login_callback(query, user, data)
@@ -834,7 +883,7 @@ Gunakan /strategi untuk trading lagi."""
         elif data == "switch_account":
             await self._handle_switch_account(query, user)
     
-    async def _handle_login_callback(self, query, user, data: str):
+    async def _handle_login_callback(self, query: CallbackQuery, user: User, data: str) -> None:
         """Handle login callbacks"""
         account_type = data.replace("login_", "")
         
@@ -854,7 +903,7 @@ Gunakan /strategi untuk trading lagi."""
                     f"⚠️ Akun terkunci. Coba lagi dalam {result['remaining_seconds']} detik."
                 )
     
-    async def _handle_strategy_callback(self, query, user, data: str):
+    async def _handle_strategy_callback(self, query: CallbackQuery, user: User, data: str) -> None:
         """Handle strategy selection - then show stake options"""
         strategy = data.replace("strategy_", "")
         
@@ -870,7 +919,7 @@ Gunakan /strategi untuk trading lagi."""
         # Show stake selection after choosing strategy
         await self._show_stake_selection(query, user, strategy)
     
-    async def _show_stake_selection(self, query, user, strategy: str):
+    async def _show_stake_selection(self, query: CallbackQuery, user: User, strategy: str) -> None:
         """Show stake selection options for the selected strategy"""
         strategy_info = STRATEGIES.get(strategy, {})
         strategy_config = get_strategy_config(strategy)
@@ -938,7 +987,7 @@ Pilih jumlah stake per trade:
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-    async def _handle_stake_callback(self, query, user, data: str):
+    async def _handle_stake_callback(self, query: CallbackQuery, user: User, data: str) -> None:
         """Handle stake selection"""
         # Parse stake data: stake_STRATEGY_VALUE
         parts = data.replace("stake_", "").rsplit("_", 1)
@@ -989,7 +1038,7 @@ Klik tombol di bawah untuk mulai trading:
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-    async def _handle_symbol_callback(self, query, user, data: str):
+    async def _handle_symbol_callback(self, query: CallbackQuery, user: User, data: str) -> None:
         """Handle symbol selection"""
         symbol = data.replace("symbol_", "")
         self._user_context[f"selected_symbol_{user.id}"] = symbol
@@ -1007,7 +1056,7 @@ Klik tombol di bawah untuk mulai trading:
             ])
         )
     
-    async def _handle_language_callback(self, query, user, data: str):
+    async def _handle_language_callback(self, query: CallbackQuery, user: User, data: str) -> None:
         """Handle language selection"""
         lang = data.replace("lang_", "")
         set_user_language(user.id, lang)
@@ -1019,7 +1068,7 @@ Klik tombol di bawah untuk mulai trading:
             ])
         )
     
-    async def _handle_menu_callback(self, query, user, data: str, context):
+    async def _handle_menu_callback(self, query: CallbackQuery, user: User, data: str, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle menu navigation"""
         menu = data.replace("menu_", "")
         
@@ -1176,7 +1225,7 @@ Klik tombol di bawah untuk mulai trading:
                 ])
             )
     
-    async def _handle_confirm_callback(self, query, user, data: str, context):
+    async def _handle_confirm_callback(self, query: CallbackQuery, user: User, data: str, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle confirmation callbacks"""
         action = data.replace("confirm_", "")
         
@@ -1263,7 +1312,7 @@ Klik tombol di bawah untuk mulai trading:
                     ])
                 )
     
-    async def _handle_force_restart_trading(self, query, user, context):
+    async def _handle_force_restart_trading(self, query: CallbackQuery, user: User, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle force restart trading - stops any existing trading and starts fresh"""
         try:
             # Force stop existing trading manager
@@ -1292,7 +1341,7 @@ Klik tombol di bawah untuk mulai trading:
                 ])
             )
     
-    async def _handle_switch_account(self, query, user):
+    async def _handle_switch_account(self, query: CallbackQuery, user: User) -> None:
         """Handle account switch"""
         if user.id in self._trading_managers:
             self._trading_managers[user.id].stop()
@@ -1328,17 +1377,21 @@ Klik tombol di bawah untuk mulai trading:
     
     # ==================== Message Handler ====================
     
-    async def _handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle text messages (primarily for token input)"""
         user = update.effective_user
-        text = update.message.text.strip()
+        message = update.message
+        chat = update.effective_chat
+        if user is None or message is None or chat is None or message.text is None:
+            return
+        text = message.text.strip()
         lang = get_user_language(user.id)
         
         if user_auth.has_pending_login(user.id):
             result = user_auth.submit_token(user.id, text, lang)
             
             try:
-                await update.message.delete()
+                await message.delete()
             except:
                 pass
             
@@ -1349,7 +1402,7 @@ Klik tombol di bawah untuk mulai trading:
                 if connected:
                     ws = self._ws_connections[user.id]
                     escaped_currency = html.escape(ws.get_currency())
-                    await update.effective_chat.send_message(
+                    await chat.send_message(
                         f"✅ <b>Login Berhasil!</b>\n\n"
                         f"📋 Tipe: {result['account_type'].upper()}\n"
                         f"💰 Saldo: {ws.get_balance():.2f} {escaped_currency}",
@@ -1360,18 +1413,22 @@ Klik tombol di bawah untuk mulai trading:
                     self._user_strategies[user.id] = "TERMINAL"
                     await self._notify_webapp_strategy_change(user.id, "TERMINAL")
                     
-                    # Show main menu
+                    # Show main menu - capture local references to avoid stale references
+                    local_user = user
+                    local_chat_send = chat.send_message
+                    
                     class FakeUpdate:
-                        effective_user = user
+                        effective_user = local_user
+                        callback_query = None
                         message = type('obj', (object,), {
-                            'reply_text': update.effective_chat.send_message
+                            'reply_text': local_chat_send
                         })()
                     
-                    await self._show_main_menu(FakeUpdate(), context)
+                    await self._show_main_menu(FakeUpdate(), context)  # type: ignore[arg-type]
                 else:
                     # Show detailed error message from Deriv
                     error_text = error_msg if error_msg else "Gagal terhubung ke Deriv. Silakan coba lagi."
-                    await update.effective_chat.send_message(
+                    await chat.send_message(
                         f"❌ <b>Login Gagal</b>\n\n{html.escape(error_text)}",
                         parse_mode=ParseMode.HTML
                     )
@@ -1384,7 +1441,7 @@ Klik tombol di bawah untuk mulai trading:
                 elif error_text == "no_pending_login":
                     error_text = "Silakan mulai login dengan /login terlebih dahulu."
                 
-                await update.effective_chat.send_message(
+                await chat.send_message(
                     f"❌ {error_text}"
                 )
     

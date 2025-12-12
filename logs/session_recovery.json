@@ -1,0 +1,1 @@
+{"config": {"symbol": "R_100", "strategy": "MULTI_INDICATOR", "base_stake": 1.0, "use_martingale": true}, "session": {"trades": 9, "wins": 4, "losses": 5, "profit": -0.9299999999999999, "starting_balance": 6.19, "martingale_level": 0}, "timestamp": "2025-12-12T10:43:12.653639"}

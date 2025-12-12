@@ -168,11 +168,11 @@ class UserPreferencesManager:
     def save_session_config(
         self, 
         user_id: int, 
-        strategy: str = None,
-        symbol: str = None,
-        stake: float = None,
-        **kwargs
-    ):
+        strategy: Optional[str] = None,
+        symbol: Optional[str] = None,
+        stake: Optional[float] = None,
+        **kwargs: Any
+    ) -> None:
         """Save current session config as preferences"""
         updates = {}
         

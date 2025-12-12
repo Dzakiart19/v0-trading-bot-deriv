@@ -8,7 +8,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ class HybridMoneyManager:
         self.is_recovering = False
         
         # Warning callbacks
-        self.on_loss_warning: Optional[callable] = None
+        self.on_loss_warning: Optional[Callable[[float, float, float, float], None]] = None
         self.warnings_sent: List[float] = []
         
         # Last balance check
@@ -134,7 +134,7 @@ class HybridMoneyManager:
         self._cached_balance = 0.0
         self._balance_check_interval = 10  # seconds
     
-    def start_session(self, starting_balance: float, strategy_name: str = None):
+    def start_session(self, starting_balance: float, strategy_name: Optional[str] = None) -> None:
         """Initialize a new trading session"""
         if strategy_name:
             self.strategy_name = strategy_name
