@@ -57,7 +57,7 @@ class TradingStartRequest(BaseModel):
     symbol: str
     strategy: str
     stake: float
-    target_trades: Optional[int] = 10
+    target_trades: int = 10
 
 class TradingStopRequest(BaseModel):
     telegram_id: int
@@ -280,7 +280,9 @@ class WebSessionManager:
     def invalidate(self, token: str):
         session = self.sessions.pop(token, None)
         if session:
-            self.telegram_to_session.pop(session.get("telegram_id"), None)
+            telegram_id = session.get("telegram_id")
+            if telegram_id is not None:
+                self.telegram_to_session.pop(telegram_id, None)
     
     def clear_user_data(self, telegram_id: int):
         """Clear all user data from session manager - used on logout"""
@@ -302,7 +304,7 @@ _main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
 # ==================== Trade Event Broadcasting ====================
 
-async def broadcast_trade_event(event_type: str, data: dict, user_id: str = None):
+async def broadcast_trade_event(event_type: str, data: dict, user_id: Optional[str] = None):
     """
     Broadcast trade event to connected websockets with standardized format
     
@@ -319,7 +321,7 @@ async def broadcast_trade_event(event_type: str, data: dict, user_id: str = None
 
 
 async def broadcast_trade_opened(contract_id: str, stake: float, contract_type: str, 
-                                  symbol: str = "", user_id: str = None, telegram_id: int = None):
+                                  symbol: str = "", user_id: Optional[str] = None, telegram_id: Optional[int] = None):
     """
     Broadcast trade opened event
     
@@ -348,7 +350,7 @@ async def broadcast_trade_opened(contract_id: str, stake: float, contract_type: 
 
 
 async def broadcast_trade_closed(profit: float, balance: float, trades: int, win_rate: float,
-                                  contract_id: str = "", user_id: str = None, telegram_id: int = None):
+                                  contract_id: str = "", user_id: Optional[str] = None, telegram_id: Optional[int] = None):
     """
     Broadcast trade closed event
     
@@ -380,7 +382,7 @@ async def broadcast_trade_closed(profit: float, balance: float, trades: int, win
 
 async def broadcast_status_update(is_running: bool, trades: int, profit: float, win_rate: float,
                                    balance: float = 0.0, symbol: str = "", strategy: str = "",
-                                   user_id: str = None, telegram_id: int = None):
+                                   user_id: Optional[str] = None, telegram_id: Optional[int] = None):
     """
     Broadcast trading status update
     
@@ -967,6 +969,9 @@ async def get_user_strategy(token: str = Query(...)):
         raise HTTPException(status_code=401, detail="Invalid session")
     
     telegram_id = session.get("telegram_id")
+    if not telegram_id:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
     strategy = session_manager.get_strategy(telegram_id)
     
     return {"strategy": strategy}
@@ -1019,6 +1024,9 @@ async def set_user_strategy(token: str = Query(...), strategy: str = Query(...))
         raise HTTPException(status_code=401, detail="Invalid session")
     
     telegram_id = session.get("telegram_id")
+    if not telegram_id:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
     session_manager.set_strategy(telegram_id, strategy)
     
     return {"success": True, "strategy": strategy}
@@ -1031,6 +1039,9 @@ async def get_summary(token: str = Query(...)):
         raise HTTPException(status_code=401, detail="Invalid session")
     
     telegram_id = session.get("telegram_id")
+    if not telegram_id:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
     ws = deriv_connections.get(telegram_id)
     deriv_account = session_manager.get_deriv_account(telegram_id)
     
@@ -1057,6 +1068,9 @@ async def place_trade(trade: TradeRequest, token: str = Query(...)):
         raise HTTPException(status_code=401, detail="Invalid session")
     
     telegram_id = session.get("telegram_id")
+    if not telegram_id:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
     ws = deriv_connections.get(telegram_id)
     
     if not ws or not ws.is_connected():
@@ -1088,6 +1102,9 @@ async def start_auto_trade(config: AutoTradeConfig, token: str = Query(...)):
         raise HTTPException(status_code=401, detail="Invalid session")
     
     telegram_id = session.get("telegram_id")
+    if not telegram_id:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
     ws = deriv_connections.get(telegram_id)
     
     if not ws or not ws.is_connected():
@@ -1447,12 +1464,12 @@ async def get_deriv_account_info(telegram_id: int = Query(...)):
 @app.websocket("/ws/stream")
 async def websocket_endpoint(
     websocket: WebSocket, 
-    token: str = Query(None),
-    telegram_id: int = Query(None)
+    token: Optional[str] = Query(None),
+    telegram_id: Optional[int] = Query(None)
 ):
     """WebSocket for real-time updates - accepts token OR telegram_id for auth"""
-    user_id = None
-    resolved_telegram_id = None
+    user_id: Optional[str] = None
+    resolved_telegram_id: Optional[int] = None
     
     # Try token-based authentication first
     if token:
@@ -1474,9 +1491,9 @@ async def websocket_endpoint(
     await manager.connect(websocket, user_id, resolved_telegram_id)
     
     try:
-        strategy = session_manager.get_strategy(resolved_telegram_id)
-        ws = deriv_connections.get(resolved_telegram_id)
-        deriv_account = session_manager.get_deriv_account(resolved_telegram_id)
+        strategy = session_manager.get_strategy(resolved_telegram_id) if resolved_telegram_id else None
+        ws = deriv_connections.get(resolved_telegram_id) if resolved_telegram_id else None
+        deriv_account = session_manager.get_deriv_account(resolved_telegram_id) if resolved_telegram_id else None
         
         snapshot_data = {
             "connected": False,
@@ -1512,7 +1529,8 @@ async def websocket_endpoint(
             
             if data.get("type") == "set_strategy":
                 new_strategy = data.get("strategy")
-                session_manager.set_strategy(resolved_telegram_id, new_strategy)
+                if resolved_telegram_id:
+                    session_manager.set_strategy(resolved_telegram_id, new_strategy)
                 manager.set_strategy(user_id, new_strategy)
                 
                 await websocket.send_json({
@@ -1532,7 +1550,8 @@ async def websocket_endpoint(
             
             elif data.get("type") == "sync_account":
                 account_data = data.get("data", {})
-                session_manager.set_deriv_account(resolved_telegram_id, account_data)
+                if resolved_telegram_id:
+                    session_manager.set_deriv_account(resolved_telegram_id, account_data)
                 await websocket.send_json({"type": "account_synced", "success": True})
                 
     except WebSocketDisconnect:
@@ -1570,15 +1589,6 @@ def register_strategy_instance(name: str, instance):
     strategy_instances[name] = instance
     logger.info(f"Registered strategy: {name}")
 
-def register_trading_manager(telegram_id: int, trading_manager):
-    """Register a TradingManager instance for a user - callable from telegram_bot"""
-    trading_managers[telegram_id] = trading_manager
-    logger.info(f"Registered trading manager for telegram_id: {telegram_id}")
-
-def unregister_trading_manager(telegram_id: int):
-    """Unregister a TradingManager instance for a user - callable from telegram_bot"""
-    trading_managers.pop(telegram_id, None)
-    logger.info(f"Unregistered trading manager for telegram_id: {telegram_id}")
 
 def get_trading_manager(telegram_id: int):
     """Get TradingManager for a user"""

@@ -26,7 +26,6 @@ from entry_filter import EntryFilter, RiskLevel, FilterResult
 from hybrid_money_manager import HybridMoneyManager, RiskLevel as MMRiskLevel, RecoveryMode
 from analytics import TradingAnalytics, TradeEntry
 from symbols import get_symbol_config, get_default_duration, validate_duration_for_symbol
-from trade_analyzer import TradeHistoryAnalyzer
 from performance_monitor import performance_monitor
 from user_preferences import user_preferences
 
@@ -109,7 +108,6 @@ class TradingManager:
         self.entry_filter = EntryFilter()
         self.money_manager = HybridMoneyManager(recovery_mode=RecoveryMode.FIBONACCI)
         self.analytics = TradingAnalytics()
-        self.trade_analyzer = TradeHistoryAnalyzer()
         
         # Dynamic session loss limit
         self.session_loss_limit = 0.0
@@ -696,17 +694,6 @@ class TradingManager:
                 self.stop()
                 return
             
-            # Check trade analyzer for losing streak
-            should_pause, pause_reason = self.trade_analyzer.should_pause()
-            if should_pause:
-                logger.warning(f"Trade analyzer recommends pause: {pause_reason}")
-                if self.on_progress:
-                    self.on_progress({
-                        "type": "pause_recommended",
-                        "message": f"⏸️ Direkomendasikan jeda: {pause_reason}"
-                    })
-                return
-            
             # Build market context for entry filter
             if hasattr(signal, 'indicators'):
                 market_context = self.entry_filter.get_market_context(signal.indicators)
@@ -1167,16 +1154,6 @@ class TradingManager:
                 exit_price_raw = float(contract.get("current_spot", 0))
             
             logger.info(f"Trade prices: entry={entry_price_raw}, exit={exit_price_raw}")
-            
-            # Record in trade analyzer for pattern detection and pause recommendations
-            strategy_name = self.config.strategy.value if self.config else "UNKNOWN"
-            self.trade_analyzer.record_trade(
-                strategy=strategy_name,
-                is_win=is_win,
-                profit=profit,
-                entry_price=entry_price_raw,
-                exit_price=exit_price_raw
-            )
             
             # Get balance after
             balance_after = self.ws.get_balance() if self.ws else balance_before + profit

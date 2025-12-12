@@ -57,6 +57,12 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
 
 ## Recent Changes
+- 2025-12-12: **Project Cleanup & Synchronization** - Major refactoring:
+  - Removed unused files: run.py, pair_scanner.py, trade_analyzer.py, auto_trade_test.py, test_all_strategies.py, test_connection.py, test_real_trade.py, test_strategy_trades.py
+  - Fixed web_server.py type safety issues (Optional types properly handled)
+  - Removed duplicate register/unregister_trading_manager functions
+  - Updated requirements.txt (removed unused websockets, numpy)
+  - Cleaned unused TradeHistoryAnalyzer references from trading.py
 - 2025-12-12: **CRITICAL FIX - Telegram Bot Conflict** - Fixed "Conflict: terminated by other getUpdates request" error:
   - Added `drop_pending_updates=True` to `start_polling()` to clear stale updates
   - Added `allowed_updates` filter for better performance
@@ -153,9 +159,12 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 5. **Entry Filtering** - Minimum confidence thresholds per strategy
 6. **Max Stake Cap** - Never exceeds 10% of balance per trade
 
-## New Files Added
+## Key Modules
 - `hybrid_money_manager.py` - Fibonacci-based stake recovery system
-- `trade_analyzer.py` - Trade history analysis and pattern detection
 - `performance_monitor.py` - Real-time performance metrics
 - `user_preferences.py` - Persistent user settings storage
 - `entry_filter.py` - Signal filtering with strategy-specific thresholds
+- `indicators.py` - Technical indicators (RSI, EMA, MACD, Stochastic, ADX, ATR, etc.)
+- `trading.py` - Main trading manager with session management
+- `telegram_bot.py` - Telegram bot interface
+- `web_server.py` - FastAPI server with WebSocket and API endpoints
