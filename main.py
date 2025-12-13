@@ -103,17 +103,39 @@ async def main():
     """Main entry point"""
     global bot
     
-    # Get environment variables
+    # Get environment variables - support multiple platforms
     telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    
+    # Detect deployment platform and set URLs
     replit_domain = os.environ.get("REPLIT_DEV_DOMAIN", "")
-    webapp_base_url = f"https://{replit_domain}" if replit_domain else os.environ.get("WEBAPP_BASE_URL", "http://localhost:5000")
-    web_port = int(os.environ.get("WEB_PORT", "5000"))
+    koyeb_domain = os.environ.get("KOYEB_PUBLIC_DOMAIN", "")
+    app_url = os.environ.get("APP_URL", "")
+    
+    if replit_domain:
+        webapp_base_url = f"https://{replit_domain}"
+    elif koyeb_domain:
+        webapp_base_url = f"https://{koyeb_domain}"
+    elif app_url:
+        webapp_base_url = app_url
+    else:
+        webapp_base_url = os.environ.get("WEBAPP_BASE_URL", "http://localhost:5000")
+    
+    # Koyeb uses PORT env var, fallback to WEB_PORT or 5000
+    web_port = int(os.environ.get("PORT", os.environ.get("WEB_PORT", "5000")))
     
     if not telegram_token:
         logger.error("TELEGRAM_BOT_TOKEN not set!")
         logger.info("Please set TELEGRAM_BOT_TOKEN environment variable")
         logger.info("Get your token from @BotFather on Telegram")
-        return
+        logger.info("For Koyeb deployment, set this in Environment Variables section")
+        import time
+        while True:
+            logger.info("Waiting for TELEGRAM_BOT_TOKEN to be set...")
+            time.sleep(60)
+            telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+            if telegram_token:
+                logger.info("TELEGRAM_BOT_TOKEN detected, starting bot...")
+                break
     
     # Create log directory
     os.makedirs("logs", exist_ok=True)

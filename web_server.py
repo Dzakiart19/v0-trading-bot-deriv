@@ -23,6 +23,7 @@ import threading
 from trading import TradingManager, TradingConfig, TradingState, StrategyType
 from performance_monitor import performance_monitor
 from user_preferences import user_preferences
+from keep_alive import keep_alive_service
 
 logger = logging.getLogger(__name__)
 
@@ -582,7 +583,8 @@ async def startup_event():
     _main_event_loop = asyncio.get_running_loop()
     await manager.start_heartbeat()
     performance_monitor.start()
-    logger.info("Web server started successfully")
+    await keep_alive_service.start()
+    logger.info("Web server started successfully (with keep-alive for Koyeb)")
 
 
 @app.on_event("shutdown")
@@ -590,6 +592,7 @@ async def shutdown_event():
     """Clean up on server shutdown"""
     logger.info("Shutting down web server...")
     await manager.stop_heartbeat()
+    await keep_alive_service.stop()
     performance_monitor.stop()
     clear_all_trading_state()
     logger.info("Web server shutdown complete")
@@ -724,6 +727,12 @@ async def health_check():
         "active_connections": len(manager.active_connections),
         "active_traders": len(trading_managers)
     })
+
+
+@app.get("/api/keep-alive/status")
+async def get_keep_alive_status():
+    """Get keep-alive service status"""
+    return JSONResponse(content=keep_alive_service.get_status())
 
 
 @app.get("/api/user/{telegram_id}/preferences")
