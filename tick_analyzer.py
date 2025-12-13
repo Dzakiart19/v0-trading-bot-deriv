@@ -32,20 +32,20 @@ class TickAnalyzerStrategy:
     - Support/Resistance detection
     """
     
-    # Thresholds - LOWERED for more signals
-    MIN_STREAK = 2  # Lowered from 3
-    REVERSAL_STREAK = 4  # Lowered from 5
+    # Thresholds - STRICT for quality signals
+    MIN_STREAK = 4  # Require meaningful streak
+    REVERSAL_STREAK = 6  # Extended streak for reversal
     SHORT_WINDOW = 5
     MEDIUM_WINDOW = 10
     LONG_WINDOW = 20
-    MIN_TICKS = 20  # Added for consistency
+    MIN_TICKS = 50  # Proper warmup for pattern accuracy
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
         self.tick_history: deque = deque(maxlen=200)
         self.prices: deque = deque(maxlen=200)
         self.last_signal_time = 0
-        self.signal_cooldown = 4  # Reduced from 8 seconds
+        self.signal_cooldown = 12  # Proper cooldown for quality signals
     
     def add_tick(self, tick: Dict[str, Any]) -> Optional[TickSignal]:
         """Add tick and analyze for patterns"""
@@ -106,10 +106,19 @@ class TickAnalyzerStrategy:
         
         signal = None
         
-        # Strategy 1: Reversal after extended streak
+        # STRICT: Calculate base confidence from pattern strength
+        # Strategy 1: Reversal after extended streak - STRICT threshold enforcement
         if streak_count >= self.REVERSAL_STREAK:
             opposite_direction = "SELL" if streak_direction == "UP" else "BUY"
-            confidence = 0.55 + min(streak_count - 5, 5) * 0.03
+            # STRICT: Start with lower base, require excess streak for confidence
+            base_confidence = 0.50
+            excess_streak = streak_count - self.REVERSAL_STREAK
+            streak_bonus = min(excess_streak * 0.04, 0.20)
+            # Momentum must support reversal (slowing down)
+            momentum_support = abs(short_momentum) < abs(medium_momentum) * 0.8
+            if momentum_support:
+                streak_bonus += 0.05
+            confidence = base_confidence + streak_bonus
             
             signal = TickSignal(
                 direction=opposite_direction,
@@ -121,21 +130,29 @@ class TickAnalyzerStrategy:
                 symbol=self.symbol
             )
         
-        # Strategy 2: Continuation with accelerating momentum
+        # Strategy 2: Continuation with accelerating momentum - STRICT streak enforcement
         elif pattern == "acceleration" and streak_count >= self.MIN_STREAK:
-            direction = "BUY" if short_momentum > 0 else "SELL"
-            confidence = 0.60 + abs(short_momentum) * 10
-            confidence = min(0.75, confidence)
+            # STRICT: Require momentum above minimum threshold
+            if abs(short_momentum) < 0.001:
+                pass  # Skip - momentum too weak
+            else:
+                direction = "BUY" if short_momentum > 0 else "SELL"
+                # STRICT: Start lower, add bonuses for streak and momentum
+                base_confidence = 0.50
+                streak_bonus = min((streak_count - self.MIN_STREAK) * 0.03, 0.12)
+                momentum_bonus = min(abs(short_momentum) * 8, 0.13)
+                confidence = base_confidence + streak_bonus + momentum_bonus
+                confidence = min(0.75, confidence)
             
-            signal = TickSignal(
-                direction=direction,
-                signal_type="continuation",
-                confidence=confidence,
-                reason=f"Momentum acceleration: {short_momentum:.4f}",
-                pattern_data=pattern_data,
-                timestamp=time.time(),
-                symbol=self.symbol
-            )
+                signal = TickSignal(
+                    direction=direction,
+                    signal_type="continuation",
+                    confidence=confidence,
+                    reason=f"Momentum acceleration: {short_momentum:.4f}",
+                    pattern_data=pattern_data,
+                    timestamp=time.time(),
+                    symbol=self.symbol
+                )
         
         # Strategy 3: Breakout from consolidation
         elif pattern == "breakout":

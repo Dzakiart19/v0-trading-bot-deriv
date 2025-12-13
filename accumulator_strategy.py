@@ -75,17 +75,17 @@ class AccumulatorStrategy:
     LONG_WINDOW = 50
     VOLATILITY_WINDOW = 20
     
-    # Thresholds - LOWERED DRASTICALLY for more signals
-    MIN_CONFIDENCE = 0.30  # Lowered from 0.55 for more entries
-    MIN_TICKS = 15  # Reduced from 20
+    # Thresholds - CONSERVATIVE for safety
+    MIN_CONFIDENCE = 0.55  # Require moderate confidence
+    MIN_TICKS = 50  # Proper warmup for accurate analysis
     
-    # Volatility Thresholds - RELAXED
-    MAX_ATR_PERCENTILE = 95  # Almost always allow (was 70)
-    MAX_VOLATILITY_CV = 3.0  # Very relaxed (was 1.0)
+    # Volatility Thresholds - STRICT for safety
+    MAX_ATR_PERCENTILE = 70  # Avoid high volatility
+    MAX_VOLATILITY_CV = 1.0  # Limit volatility variation
     
-    # Barrier Distance Settings - RELAXED
-    MIN_BARRIER_DISTANCE_MULTIPLIER = 1.0  # Min distance = 1x ATR (was 2x)
-    BARRIER_HIT_PROBABILITY_THRESHOLD = 0.60  # Max 60% probability (was 30%)
+    # Barrier Distance Settings - STRICT for safety
+    MIN_BARRIER_DISTANCE_MULTIPLIER = 2.0  # Min distance = 2x ATR
+    BARRIER_HIT_PROBABILITY_THRESHOLD = 0.35  # Max 35% probability
     
     # Growth rate selection - Conservative (always prefer 1%)
     GROWTH_CRITERIA = {
@@ -102,10 +102,10 @@ class AccumulatorStrategy:
         "1HZ100V", "1HZ10V", "1HZ25V", "1HZ50V", "1HZ75V"
     ]
     
-    # Cooldown Settings - MINIMAL for maximum trading
-    DEFAULT_COOLDOWN = 3  # Very fast
-    LOSS_COOLDOWN = 5  # Fast recovery
-    CONSECUTIVE_LOSS_COOLDOWN = 10  # Quick reset
+    # Cooldown Settings - CONSERVATIVE for safety
+    DEFAULT_COOLDOWN = 15  # Proper cooldown between entries
+    LOSS_COOLDOWN = 30  # Wait after loss
+    CONSECUTIVE_LOSS_COOLDOWN = 60  # Extended cooldown after multiple losses
     
     def __init__(self):
         # Per-symbol tracking

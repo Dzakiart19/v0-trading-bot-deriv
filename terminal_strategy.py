@@ -78,8 +78,8 @@ class TerminalStrategy:
         RiskLevel.VERY_HIGH: {"multiplier": 2.5, "max_levels": 3}
     }
     
-    MIN_CONFIDENCE = 0.15  # Lowered for more frequent signals
-    MIN_TICKS = 10  # Fast warmup
+    MIN_CONFIDENCE = 0.65  # Require strong signals
+    MIN_TICKS = 50  # Proper warmup for accurate indicators
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
@@ -100,7 +100,7 @@ class TerminalStrategy:
         # Signal history
         self.signals: deque = deque(maxlen=100)
         self.last_signal_time = 0
-        self.signal_cooldown = 1  # seconds - fast trading
+        self.signal_cooldown = 12  # Proper cooldown for quality signals
     
     def add_tick(self, tick: Dict[str, Any]) -> Optional[TerminalSignal]:
         """Add new tick data and analyze for signals"""
@@ -140,8 +140,8 @@ class TerminalStrategy:
         if direction is None:
             return None
         
-        # Check if meets minimum confidence - VERY RELAXED
-        if probability < 0.20:  # Very low threshold
+        # Check if meets minimum confidence - STRICT
+        if probability < 0.75:  # Require high probability
             return None
         
         # Calculate risk level
@@ -275,17 +275,16 @@ class TerminalStrategy:
                 elif signal == "SELL":
                     sell_votes += strength * self.WEIGHTS.get(indicator, 0.25)
         
-        # Need any direction bias - VERY RELAXED
-        if buy_votes > sell_votes and buy_votes > 0.05:
+        # Need clear direction bias - STRICT
+        min_vote_threshold = 0.35  # Require meaningful consensus
+        vote_diff = abs(buy_votes - sell_votes)
+        
+        if buy_votes > sell_votes and buy_votes >= min_vote_threshold and vote_diff >= 0.15:
             return "BUY"
-        elif sell_votes > buy_votes and sell_votes > 0.05:
-            return "SELL"
-        elif buy_votes > 0:
-            return "BUY"
-        elif sell_votes > 0:
+        elif sell_votes > buy_votes and sell_votes >= min_vote_threshold and vote_diff >= 0.15:
             return "SELL"
         
-        return "BUY"  # Default to BUY if no clear direction
+        return None  # No clear direction = no trade
     
     def _assess_risk(self, scores: Dict[str, Any]) -> RiskLevel:
         """Assess risk level based on market conditions"""

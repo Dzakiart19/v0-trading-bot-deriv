@@ -38,34 +38,39 @@ class EntryFilter:
     - Strategy-specific thresholds
     """
     
-    # Thresholds by risk level - VERY LOW for maximum signals
+    # Thresholds by risk level - STRICT for quality signals
     CONFIDENCE_THRESHOLDS = {
-        RiskLevel.LOW: 0.30,      # Very low
-        RiskLevel.MEDIUM: 0.25,   # Very low
-        RiskLevel.HIGH: 0.20,     # Very low
-        RiskLevel.AGGRESSIVE: 0.15  # Minimum
+        RiskLevel.LOW: 0.65,        # Conservative
+        RiskLevel.MEDIUM: 0.55,     # Balanced
+        RiskLevel.HIGH: 0.50,       # Moderate
+        RiskLevel.AGGRESSIVE: 0.45  # Still requires confirmation
     }
     
-    # Strategy-specific confidence overrides - VERY LOW for testing
+    # Strategy-specific confidence overrides - STRICT for quality
     STRATEGY_CONFIDENCE_OVERRIDES = {
-        "AMT": 0.30,        # Very low
-        "SNIPER": 0.40,     # Lowered
-        "TERMINAL": 0.30,   # Very low
-        "TICK_PICKER": 0.30,  # Very low
-        "DIGITPAD": 0.30,   # Very low
-        "LDP": 0.30,        # Very low
-        "MULTI_INDICATOR": 0.30  # Very low
+        "AMT": 0.55,          # Accumulator needs moderate confidence
+        "SNIPER": 0.80,       # Sniper must be high probability
+        "TERMINAL": 0.65,     # Terminal needs strong signals
+        "TICK_PICKER": 0.60,  # Tick patterns need confirmation
+        "DIGITPAD": 0.60,     # Digit patterns need confirmation  
+        "LDP": 0.60,          # LDP needs statistical significance
+        "MULTI_INDICATOR": 0.60  # Multi-indicator needs confluence
     }
     
-    # Strategy-specific minimum cooldown (seconds) - MINIMAL
+    # Strategy-specific minimum cooldown (seconds) - PROPER INTERVALS
     STRATEGY_COOLDOWNS = {
-        "AMT": 3,           # Very fast
-        "SNIPER": 5,        # Fast
-        "DEFAULT": 2        # Very fast
+        "AMT": 15,           # Accumulator needs time between entries
+        "SNIPER": 20,        # Sniper is ultra-selective
+        "TERMINAL": 12,      # Terminal needs analysis time
+        "TICK_PICKER": 10,   # Tick picker moderate cooldown
+        "DIGITPAD": 30,      # Digit needs sample collection
+        "LDP": 30,           # LDP needs sample collection
+        "MULTI_INDICATOR": 12,  # Multi-indicator moderate
+        "DEFAULT": 10        # Default cooldown
     }
     
-    MIN_ENTRY_SCORE = 20  # Very low for more signals
-    HIGH_ENTRY_SCORE = 70  # Lowered from 80
+    MIN_ENTRY_SCORE = 55  # Require quality setups
+    HIGH_ENTRY_SCORE = 80  # High quality threshold
     
     # Scoring weights
     WEIGHTS = {
@@ -168,25 +173,68 @@ class EntryFilter:
         else:
             scores["volatility"] = 100 - abs(volatility - 50)
         
-        # 3. Trend alignment
+        # 3. Trend alignment - STRICT CHECK WITH HARD BLOCK
         trend = market_data.get("trend", "NEUTRAL")
         adx = market_data.get("adx", 0)
+        ema_fast = market_data.get("ema_fast", 0)
+        ema_slow = market_data.get("ema_slow", 0)
         
+        # HARD BLOCK: Counter-trend trades with strong ADX are immediately rejected
+        is_counter_trend = (
+            (direction == "BUY" and trend == "DOWNTREND") or
+            (direction == "SELL" and trend == "UPTREND")
+        )
+        if is_counter_trend and adx >= 20:
+            reasons.append(f"BLOCKED: Counter-trend {direction} vs {trend} with ADX {adx:.1f}")
+            self.stats["blocked"] += 1
+            self.stats["blocked_reasons"]["Counter-trend"] = \
+                self.stats["blocked_reasons"].get("Counter-trend", 0) + 1
+            return FilterResult(
+                passed=False,
+                score=0,
+                risk_level=self.risk_level,
+                reasons=reasons,
+                adjustments={}
+            )
+        
+        # Strong trend alignment
         if direction == "BUY" and trend == "UPTREND":
             scores["trend_alignment"] = 100
         elif direction == "SELL" and trend == "DOWNTREND":
             scores["trend_alignment"] = 100
         elif trend == "NEUTRAL" or trend == "RANGING":
-            scores["trend_alignment"] = 70
+            # Neutral is acceptable but not ideal
+            scores["trend_alignment"] = 65
+            reasons.append(f"Neutral trend - moderate confidence")
         else:
-            scores["trend_alignment"] = 40
-            reasons.append(f"Counter-trend trade: {direction} vs {trend}")
+            # Counter-trend with weak ADX - heavily penalized but allowed
+            scores["trend_alignment"] = 25
+            reasons.append(f"Counter-trend trade: {direction} vs {trend} - HIGH RISK")
         
-        # ADX bonus/penalty
-        if adx > 25:
-            scores["trend_alignment"] = min(100, scores["trend_alignment"] + 10)
+        # ADX trend strength check - STRICT
+        if adx > 30:
+            # Very strong trend - bonus for aligned, harsh penalty for counter
+            if (direction == "BUY" and trend == "UPTREND") or (direction == "SELL" and trend == "DOWNTREND"):
+                scores["trend_alignment"] = min(100, scores["trend_alignment"] + 15)
+            elif trend not in ["NEUTRAL", "RANGING"]:
+                scores["trend_alignment"] = max(0, scores["trend_alignment"] - 20)
+                reasons.append(f"Strong opposing trend (ADX: {adx:.1f}) - AVOID")
+        elif adx > 22:
+            if (direction == "BUY" and trend == "UPTREND") or (direction == "SELL" and trend == "DOWNTREND"):
+                scores["trend_alignment"] = min(100, scores["trend_alignment"] + 10)
         elif adx < 15:
-            scores["trend_alignment"] = max(0, scores["trend_alignment"] - 10)
+            # Weak trend - reduce confidence
+            scores["trend_alignment"] = max(0, scores["trend_alignment"] - 15)
+            reasons.append(f"Weak trend strength (ADX: {adx:.1f})")
+        
+        # EMA alignment check if available
+        if ema_fast and ema_slow:
+            if direction == "BUY" and ema_fast < ema_slow:
+                scores["trend_alignment"] = max(0, scores["trend_alignment"] - 15)
+                reasons.append("EMA not aligned for BUY")
+            elif direction == "SELL" and ema_fast > ema_slow:
+                scores["trend_alignment"] = max(0, scores["trend_alignment"] - 15)
+                reasons.append("EMA not aligned for SELL")
         
         # 4. Session time
         import time as time_module
@@ -209,19 +257,26 @@ class EntryFilter:
             for key in scores
         )
         
-        # Determine if passed
+        # Determine if passed - STRICT CHECK, no marginal entries
         passed = total_score >= self.MIN_ENTRY_SCORE and confidence >= conf_threshold
         
-        # Adjustments for marginal cases
+        # Additional strict checks
         adjustments = {}
-        if total_score >= self.MIN_ENTRY_SCORE - 10 and total_score < self.MIN_ENTRY_SCORE:
-            adjustments["stake_reduction"] = 0.5  # Reduce stake by 50%
-            passed = True
-            reasons.append("Marginal entry - reduced stake recommended")
         
-        if total_score >= self.HIGH_ENTRY_SCORE:
-            adjustments["stake_increase"] = 1.2  # Increase stake by 20%
-            reasons.append("High-quality setup")
+        # Counter-trend penalty - block if trend alignment is too low
+        if scores.get("trend_alignment", 0) < 40:
+            passed = False
+            reasons.append("Blocked: Trend alignment too weak")
+        
+        # Volatility check - block extreme volatility
+        if scores.get("volatility", 50) < 30:
+            passed = False
+            reasons.append("Blocked: Volatility conditions unfavorable")
+        
+        # High-quality setup bonus (only for truly excellent setups)
+        if total_score >= self.HIGH_ENTRY_SCORE and confidence >= 0.75:
+            adjustments["stake_increase"] = 1.15  # Modest 15% increase
+            reasons.append("High-quality setup - slightly increased confidence")
         
         # Update stats and last signal time
         if passed:

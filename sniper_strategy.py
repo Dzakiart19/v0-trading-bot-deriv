@@ -69,10 +69,10 @@ class SniperStrategy:
         "REVERSAL_PATTERN"
     ]
     
-    # Thresholds - VERY LOW for maximum signals
-    MIN_CONFIDENCE = 0.30  # Very low for more trades
-    MIN_CONFIRMATIONS = 1  # Minimum confirmations
-    MIN_TICKS = 15  # Fast warmup
+    # Thresholds - STRICT for high probability only
+    MIN_CONFIDENCE = 0.80  # High probability requirement
+    MIN_CONFIRMATIONS = 3  # Require multiple confirmations
+    MIN_TICKS = 50  # Proper warmup for indicator accuracy
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
@@ -103,7 +103,7 @@ class SniperStrategy:
         # Signal history
         self.signals: deque = deque(maxlen=100)
         self.last_signal_time = 0
-        self.signal_cooldown = 5  # Reduced from 10 for faster trading
+        self.signal_cooldown = 20  # Ultra-selective - long cooldown between entries
         
         # Trading state - Default to True for automatic trading
         self.is_trading = True

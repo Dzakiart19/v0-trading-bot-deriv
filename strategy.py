@@ -45,34 +45,35 @@ class MultiIndicatorStrategy:
     - Confluence Scoring (0-100)
     """
     
-    # Configuration
+    # Configuration - STRICT THRESHOLDS for quality signals
     RSI_PERIOD = 14
-    RSI_OVERSOLD_LOW = 20
-    RSI_OVERSOLD_HIGH = 40  # Expanded from 30 for more signals
-    RSI_OVERBOUGHT_LOW = 60  # Lowered from 70 for more signals
-    RSI_OVERBOUGHT_HIGH = 80
+    RSI_OVERSOLD_LOW = 15      # Extreme oversold
+    RSI_OVERSOLD_HIGH = 28     # Tight oversold zone
+    RSI_OVERBOUGHT_LOW = 72    # Tight overbought zone
+    RSI_OVERBOUGHT_HIGH = 85   # Extreme overbought
     
     EMA_FAST = 9
     EMA_SLOW = 21
+    EMA_TREND = 50             # Added for trend confirmation
     
     MACD_FAST = 12
     MACD_SLOW = 26
     MACD_SIGNAL = 9
     
     STOCH_PERIOD = 14
-    STOCH_OVERSOLD = 30  # Raised from 20 for more signals
-    STOCH_OVERBOUGHT = 70  # Lowered from 80 for more signals
+    STOCH_OVERSOLD = 20        # Strict oversold
+    STOCH_OVERBOUGHT = 80      # Strict overbought
     
     ADX_PERIOD = 14
-    ADX_STRONG = 18  # Lowered from 22 for more signals
-    ADX_MODERATE = 12  # Lowered from 18 for more signals
-    ADX_WEAK = 8
+    ADX_STRONG = 25            # Strong trend threshold
+    ADX_MODERATE = 20          # Moderate trend
+    ADX_WEAK = 15              # Weak trend
     
     ATR_PERIOD = 14
     
-    MIN_CONFLUENCE = 15  # Lowered from 25 for more signals
-    MIN_CONFIDENCE = 0.30  # Lowered from 0.40 for more signals
-    SIGNAL_COOLDOWN = 3  # Reduced from 5 seconds for faster testing
+    MIN_CONFLUENCE = 45        # Require strong confluence
+    MIN_CONFIDENCE = 0.60      # Require moderate confidence
+    SIGNAL_COOLDOWN = 10       # 10 seconds between signals
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
@@ -180,21 +181,32 @@ class MultiIndicatorStrategy:
         direction_votes = {"BUY": 0, "SELL": 0}
         reasons = []
         
-        # RSI Analysis (25 points max)
+        # Calculate EMA trend for validation
+        ema_trend = calculate_ema(prices, 50) if len(prices) >= 50 else None
+        current_ema_trend = ema_trend[-1] if ema_trend else 0
+        is_uptrend = current_ema_fast > current_ema_slow > current_ema_trend if current_ema_trend else current_ema_fast > current_ema_slow
+        is_downtrend = current_ema_fast < current_ema_slow < current_ema_trend if current_ema_trend else current_ema_fast < current_ema_slow
+        
+        # RSI Analysis (25 points max) - STRICT ZONES
         if self.RSI_OVERSOLD_LOW <= current_rsi <= self.RSI_OVERSOLD_HIGH:
-            confluence += 25
-            direction_votes["BUY"] += 2
-            reasons.append(f"RSI oversold ({current_rsi:.1f})")
+            # Only count if EMA supports the direction
+            if is_uptrend or current_ema_fast > current_ema_slow:
+                confluence += 25
+                direction_votes["BUY"] += 2
+                reasons.append(f"RSI oversold ({current_rsi:.1f}) with EMA support")
+            else:
+                confluence += 15  # Reduced score without EMA confirmation
+                direction_votes["BUY"] += 1
+                reasons.append(f"RSI oversold ({current_rsi:.1f}) - needs EMA confirmation")
         elif self.RSI_OVERBOUGHT_LOW <= current_rsi <= self.RSI_OVERBOUGHT_HIGH:
-            confluence += 25
-            direction_votes["SELL"] += 2
-            reasons.append(f"RSI overbought ({current_rsi:.1f})")
-        elif current_rsi < 40:
-            confluence += 10
-            direction_votes["BUY"] += 1
-        elif current_rsi > 60:
-            confluence += 10
-            direction_votes["SELL"] += 1
+            if is_downtrend or current_ema_fast < current_ema_slow:
+                confluence += 25
+                direction_votes["SELL"] += 2
+                reasons.append(f"RSI overbought ({current_rsi:.1f}) with EMA support")
+            else:
+                confluence += 15
+                direction_votes["SELL"] += 1
+                reasons.append(f"RSI overbought ({current_rsi:.1f}) - needs EMA confirmation")
         
         # EMA Crossover (20 points max)
         ema_diff = current_ema_fast - current_ema_slow
@@ -257,37 +269,68 @@ class MultiIndicatorStrategy:
             # Conflicting signals, reduce confluence
             confluence = max(0, confluence - 10)
         
-        # Mean Reversion (Z-Score) (10 points max)
-        if current_zscore < -2:
-            confluence += 10
-            direction_votes["BUY"] += 1
-            reasons.append(f"Mean reversion BUY (Z: {current_zscore:.2f})")
-        elif current_zscore > 2:
-            confluence += 10
-            direction_votes["SELL"] += 1
-            reasons.append(f"Mean reversion SELL (Z: {current_zscore:.2f})")
+        # Mean Reversion (Z-Score) (10 points max) - ONLY with trend confirmation
+        # Mean reversion against strong trend is dangerous
+        if current_zscore < -2.5:
+            # Only count if not against strong downtrend
+            if not is_downtrend or current_adx < self.ADX_MODERATE:
+                confluence += 10
+                direction_votes["BUY"] += 1
+                reasons.append(f"Mean reversion BUY (Z: {current_zscore:.2f})")
+            else:
+                reasons.append(f"Mean reversion ignored - against trend (Z: {current_zscore:.2f})")
+        elif current_zscore > 2.5:
+            if not is_uptrend or current_adx < self.ADX_MODERATE:
+                confluence += 10
+                direction_votes["SELL"] += 1
+                reasons.append(f"Mean reversion SELL (Z: {current_zscore:.2f})")
+            else:
+                reasons.append(f"Mean reversion ignored - against trend (Z: {current_zscore:.2f})")
         
-        # Determine direction
-        if direction_votes["BUY"] > direction_votes["SELL"]:
+        # Determine direction - require clear majority
+        vote_diff = abs(direction_votes["BUY"] - direction_votes["SELL"])
+        if direction_votes["BUY"] > direction_votes["SELL"] and vote_diff >= 2:
             direction = "BUY"
-        elif direction_votes["SELL"] > direction_votes["BUY"]:
+            # Verify trend alignment for BUY
+            if is_downtrend and current_adx >= self.ADX_MODERATE:
+                confluence = max(0, confluence - 20)
+                reasons.append("Counter-trend BUY - reduced confidence")
+        elif direction_votes["SELL"] > direction_votes["BUY"] and vote_diff >= 2:
             direction = "SELL"
+            # Verify trend alignment for SELL
+            if is_uptrend and current_adx >= self.ADX_MODERATE:
+                confluence = max(0, confluence - 20)
+                reasons.append("Counter-trend SELL - reduced confidence")
         else:
             direction = "HOLD"
+            reasons.append("Insufficient vote difference for clear direction")
         
         # Volatility penalty for extreme conditions
-        if vol_percentile > 90:
-            confluence = max(0, confluence - 15)
-            reasons.append("High volatility warning")
+        if vol_percentile > 85:
+            confluence = max(0, confluence - 20)
+            reasons.append("High volatility - reduced confidence")
+        elif vol_percentile > 75:
+            confluence = max(0, confluence - 10)
+            reasons.append("Elevated volatility")
         
-        # Calculate confidence
-        confidence = min(1.0, confluence / 100 + 0.1)
+        # Calculate confidence - more conservative formula
+        # Base confidence from confluence, with proper scaling
+        base_confidence = confluence / 100
+        # Add bonus for strong trend alignment
+        if (direction == "BUY" and is_uptrend) or (direction == "SELL" and is_downtrend):
+            base_confidence = min(1.0, base_confidence + 0.10)
+        confidence = min(0.95, max(0.0, base_confidence))
         
         # Check thresholds (use instance variables for configurability)
         if confluence < self.min_confluence or confidence < self.min_confidence:
             return None
         
         if direction == "HOLD":
+            return None
+        
+        # STRICT ADX CHECK: Require minimum trend strength for signal
+        if current_adx < self.ADX_STRONG:
+            logger.debug(f"Signal blocked: ADX {current_adx:.1f} < {self.ADX_STRONG} threshold")
             return None
         
         # Build indicator snapshot

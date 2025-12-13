@@ -37,18 +37,18 @@ class LDPStrategy:
     - DIGITODD: Last digit is odd (1,3,5,7,9)
     """
     
-    MIN_TICKS = 10  # Fast warmup
-    HOT_THRESHOLD = 0.12  # Hot digit = appears more than 12% (above average 10%)
-    COLD_THRESHOLD = 0.08  # Cold digit = appears less than 8% (below average 10%)
-    STREAK_THRESHOLD = 1  # Minimum streak
-    ZONE_IMBALANCE_THRESHOLD = 0.05  # Very low imbalance for more signals
+    MIN_TICKS = 150  # Require statistical significance (150+ samples)
+    HOT_THRESHOLD = 0.18  # Hot digit = appears more than 18% (clear outlier)
+    COLD_THRESHOLD = 0.05  # Cold digit = appears less than 5% (clear outlier)
+    STREAK_THRESHOLD = 4  # Require meaningful streak
+    ZONE_IMBALANCE_THRESHOLD = 0.15  # Significant imbalance required
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
-        self.digit_history: deque = deque(maxlen=200)
-        self.tick_history: deque = deque(maxlen=200)
+        self.digit_history: deque = deque(maxlen=500)  # Larger sample for significance
+        self.tick_history: deque = deque(maxlen=500)
         self.last_signal_time = 0
-        self.signal_cooldown = 1  # Fast signal generation
+        self.signal_cooldown = 30  # Proper cooldown for sample collection
     
     def _get_last_digit(self, price: float) -> int:
         """Extract last digit from price"""

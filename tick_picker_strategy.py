@@ -54,11 +54,11 @@ class TickPickerStrategy:
     MEDIUM_WINDOW = 10
     LONG_WINDOW = 20
     
-    # Thresholds - VERY LOW for maximum signals
-    STREAK_THRESHOLD = 1  # Minimum streak
-    REVERSAL_THRESHOLD = 2  # Low reversal threshold
-    MIN_CONFIDENCE = 0.25  # Very low confidence
-    MIN_TICKS = 10  # Fast warmup
+    # Thresholds - STRICT for quality signals
+    STREAK_THRESHOLD = 3  # Require meaningful streak
+    REVERSAL_THRESHOLD = 5  # Require extended streak for reversal
+    MIN_CONFIDENCE = 0.60  # Require moderate confidence
+    MIN_TICKS = 30  # Proper warmup for pattern accuracy
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
@@ -74,7 +74,7 @@ class TickPickerStrategy:
         # Signal history
         self.signals: deque = deque(maxlen=100)
         self.last_signal_time = 0
-        self.signal_cooldown = 2  # Reduced from 3 seconds
+        self.signal_cooldown = 10  # Proper cooldown for pattern confirmation
         
         # Money management
         self.use_martingale = False
@@ -191,40 +191,52 @@ class TickPickerStrategy:
     
     def _detect_pattern(self, short_mom: float, med_mom: float, long_mom: float) -> tuple:
         """
-        Detect market pattern
+        Detect market pattern with STRICT streak enforcement
         
         Returns:
             (pattern_name, confidence)
         """
-        # Reversal Detection
+        # STRICT: Require minimum streak for any pattern except trend
+        # Reversal Detection - ONLY if streak threshold met
         if self.current_streak >= self.REVERSAL_THRESHOLD:
-            # Long streak, expect reversal
-            confidence = 0.60 + (self.current_streak - 5) * 0.03
+            # Long streak, expect reversal - confidence starts lower
+            base_confidence = 0.55
+            streak_bonus = min((self.current_streak - self.REVERSAL_THRESHOLD) * 0.04, 0.20)
+            confidence = base_confidence + streak_bonus
             return ("REVERSAL", min(confidence, 0.80))
         
-        # Trend Detection
-        if short_mom > 0 and med_mom > 0 and long_mom > 0:
-            # All timeframes bullish = strong uptrend
+        # STRICT: Momentum must exceed minimum threshold for trend detection
+        min_momentum = 0.001  # Minimum momentum threshold
+        
+        # Trend Detection - require meaningful momentum
+        if short_mom > min_momentum and med_mom > min_momentum and long_mom > min_momentum:
             alignment = min(abs(short_mom), abs(med_mom), abs(long_mom))
-            confidence = 0.55 + alignment * 10
+            # STRICT: Start lower, require momentum strength
+            if alignment < 0.002:
+                return (None, 0)  # Too weak
+            confidence = 0.50 + min(alignment * 15, 0.25)
             return ("UPTREND", min(confidence, 0.75))
         
-        if short_mom < 0 and med_mom < 0 and long_mom < 0:
-            # All timeframes bearish = strong downtrend
+        if short_mom < -min_momentum and med_mom < -min_momentum and long_mom < -min_momentum:
             alignment = min(abs(short_mom), abs(med_mom), abs(long_mom))
-            confidence = 0.55 + alignment * 10
+            if alignment < 0.002:
+                return (None, 0)  # Too weak
+            confidence = 0.50 + min(alignment * 15, 0.25)
             return ("DOWNTREND", min(confidence, 0.75))
         
-        # Continuation with short-term momentum
+        # Continuation - STRICT: Must meet STREAK_THRESHOLD
         if self.current_streak >= self.STREAK_THRESHOLD:
-            if abs(short_mom) > abs(long_mom):
-                # Momentum accelerating
-                confidence = 0.55 + self.current_streak * 0.02
+            # STRICT: Require momentum acceleration
+            if abs(short_mom) > abs(long_mom) * 1.3:  # 30% acceleration required
+                base_confidence = 0.50
+                streak_bonus = min((self.current_streak - self.STREAK_THRESHOLD) * 0.03, 0.15)
+                mom_bonus = min(abs(short_mom) * 5, 0.10)
+                confidence = base_confidence + streak_bonus + mom_bonus
                 return ("CONTINUATION", min(confidence, 0.70))
         
-        # Consolidation
+        # Consolidation - no signal for low confidence
         if abs(short_mom) < 0.01 and abs(med_mom) < 0.02:
-            return ("CONSOLIDATION", 0.50)
+            return ("CONSOLIDATION", 0.40)  # Below MIN_CONFIDENCE, won't generate signal
         
         return (None, 0)
     
