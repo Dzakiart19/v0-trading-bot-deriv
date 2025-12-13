@@ -55,8 +55,25 @@ A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integ
 - `TELEGRAM_BOT_TOKEN` - Get from @BotFather on Telegram
 - `DERIV_APP_ID` (optional) - Deriv OAuth App ID (default: 1089)
 - `DERIV_API_TOKEN` (optional) - Deriv API token for trading
+- `APP_URL` (Koyeb) - Your Koyeb app URL for keep-alive (e.g., https://your-app.koyeb.app)
+- `PORT` (Koyeb) - Auto-set by Koyeb, default 8000
+
+## Koyeb Deployment (24/7 Free Tier)
+Bot ini sudah siap untuk deploy ke Koyeb free tier dengan fitur keep-alive 24 jam:
+- Self-ping setiap 4 menit ke `/api/health`
+- Mencegah app sleep karena tidak ada traffic
+- File: `Dockerfile`, `Procfile`, `keep_alive.py`
+- Panduan lengkap: `DEPLOY_KOYEB.md`
 
 ## Recent Changes
+- 2025-12-13: **Koyeb Deployment Support** - Added 24/7 keep-alive for free tier:
+  - Created `keep_alive.py` - Self-ping service every 4 minutes
+  - Created `Dockerfile` - Docker-based deployment for Koyeb
+  - Created `Procfile` - Alternative deployment method
+  - Created `DEPLOY_KOYEB.md` - Complete deployment guide in Indonesian
+  - Updated `main.py` - Auto-detect Koyeb environment (PORT, KOYEB_PUBLIC_DOMAIN)
+  - Updated `web_server.py` - Integrated keep-alive service on startup/shutdown
+  - Added `/api/keep-alive/status` endpoint for monitoring
 - 2025-12-12: **Project Cleanup & Synchronization** - Major refactoring:
   - Removed unused files: run.py, pair_scanner.py, trade_analyzer.py, auto_trade_test.py, test_all_strategies.py, test_connection.py, test_real_trade.py, test_strategy_trades.py
   - Fixed web_server.py type safety issues (Optional types properly handled)
