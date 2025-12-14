@@ -10,6 +10,7 @@ import hashlib
 import logging
 import asyncio
 import secrets
+import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Query
@@ -24,6 +25,7 @@ from trading import TradingManager, TradingConfig, TradingState, StrategyType
 from performance_monitor import performance_monitor
 from user_preferences import user_preferences
 from keep_alive import keep_alive_service
+from paper_trading import PaperTradingManager, BacktestEngine, BacktestResult
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,26 @@ class TradingStartRequest(BaseModel):
 
 class TradingStopRequest(BaseModel):
     telegram_id: int
+
+
+class PaperTradingStartRequest(BaseModel):
+    telegram_id: int
+    initial_balance: float = 10000.0
+    payout_percent: float = 85.0
+    simulated_win_rate: float = 0.50
+
+
+class PaperTradingStopRequest(BaseModel):
+    telegram_id: int
+
+
+class PaperTradeRequest(BaseModel):
+    telegram_id: int
+    symbol: str
+    contract_type: str
+    stake: float
+    duration: int = 5
+    duration_unit: str = "t"
 
 
 # ==================== WebSocket Manager ====================
@@ -458,6 +480,7 @@ def clear_all_trading_state():
     trading_managers.clear()
     deriv_connections.clear()
     strategy_instances.clear()
+    paper_trading_managers.clear()
     
     # Clear session manager data
     session_manager.sessions.clear()
@@ -472,6 +495,7 @@ def clear_all_trading_state():
 strategy_instances: Dict[str, Any] = {}
 deriv_connections: Dict[int, Any] = {}
 trading_managers: Dict[int, Any] = {}
+paper_trading_managers: Dict[int, PaperTradingManager] = {}
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 DERIV_APP_ID = os.environ.get("DERIV_APP_ID", "") or "1089"
@@ -1653,6 +1677,333 @@ def register_strategy_instance(name: str, instance):
 def get_trading_manager(telegram_id: int):
     """Get TradingManager for a user"""
     return trading_managers.get(telegram_id)
+
+
+# ==================== Dashboard KPIs API ====================
+
+@app.get("/api/dashboard/kpis/{telegram_id}")
+async def get_dashboard_kpis(telegram_id: int):
+    """
+    Get comprehensive dashboard KPIs for a user
+    Includes: performance metrics, trading stats, system health
+    """
+    kpis = {
+        "timestamp": datetime.now().isoformat(),
+        "telegram_id": telegram_id,
+        "trading": {
+            "is_active": False,
+            "current_balance": 0.0,
+            "session_profit": 0.0,
+            "session_trades": 0,
+            "win_rate": 0.0,
+            "current_strategy": None,
+            "current_symbol": None
+        },
+        "session_analytics": {},
+        "performance": {},
+        "connections": {
+            "websocket_connected": manager.is_connected(str(telegram_id)),
+            "deriv_connected": telegram_id in deriv_connections,
+            "active_connections_count": manager.get_connection_count()
+        }
+    }
+    
+    if telegram_id in trading_managers:
+        tm = trading_managers[telegram_id]
+        status = tm.get_status() if hasattr(tm, 'get_status') else {}
+        
+        kpis["trading"] = {
+            "is_active": status.get("state") == "RUNNING",
+            "current_balance": status.get("balance", 0.0),
+            "session_profit": status.get("session_profit", 0.0),
+            "session_trades": status.get("session_trades", 0),
+            "win_rate": status.get("win_rate", 0.0),
+            "current_strategy": status.get("strategy"),
+            "current_symbol": status.get("symbol"),
+            "wins": status.get("wins", 0),
+            "losses": status.get("losses", 0),
+            "martingale_level": status.get("martingale_level", 0)
+        }
+        
+        if hasattr(tm, 'analytics') and tm.analytics:
+            analytics = tm.analytics
+            kpis["session_analytics"] = {
+                "rolling_win_rate": analytics.get_rolling_win_rate() if hasattr(analytics, 'get_rolling_win_rate') else 0,
+                "max_drawdown": analytics.get_max_drawdown() if hasattr(analytics, 'get_max_drawdown') else 0,
+                "profit_factor": analytics.get_profit_factor() if hasattr(analytics, 'get_profit_factor') else 0,
+                "best_trading_hours": analytics.get_best_trading_hours() if hasattr(analytics, 'get_best_trading_hours') else [],
+                "martingale_success_rate": analytics.get_martingale_success_rate() if hasattr(analytics, 'get_martingale_success_rate') else 0,
+                "hourly_profits": analytics.hourly_profits if hasattr(analytics, 'hourly_profits') else {}
+            }
+    
+    metrics = performance_monitor.get_metrics()
+    kpis["performance"] = {
+        "tick_processing_time_avg_ms": metrics.tick_processing_time_avg,
+        "tick_processing_time_max_ms": metrics.tick_processing_time_max,
+        "websocket_latency_ms": metrics.websocket_latency,
+        "trade_execution_time_avg_ms": metrics.trade_execution_time_avg,
+        "memory_usage_mb": metrics.memory_usage_mb,
+        "trades_per_minute": metrics.trades_per_minute,
+        "error_rate": metrics.error_rate,
+        "is_healthy": metrics.is_healthy
+    }
+    
+    return JSONResponse(kpis)
+
+
+@app.get("/api/dashboard/system-health")
+async def get_system_health():
+    """Get overall system health metrics"""
+    metrics = performance_monitor.get_metrics()
+    
+    active_trading_sessions = sum(
+        1 for tm in trading_managers.values()
+        if hasattr(tm, 'state') and str(tm.state) == "TradingState.RUNNING"
+    )
+    
+    return JSONResponse({
+        "timestamp": datetime.now().isoformat(),
+        "is_healthy": metrics.is_healthy,
+        "uptime_seconds": time.time() - performance_monitor.start_time if hasattr(performance_monitor, 'start_time') else 0,
+        "metrics": {
+            "tick_processing_ms": metrics.tick_processing_time_avg,
+            "websocket_latency_ms": metrics.websocket_latency,
+            "trade_execution_ms": metrics.trade_execution_time_avg,
+            "memory_mb": metrics.memory_usage_mb,
+            "error_rate": metrics.error_rate
+        },
+        "sessions": {
+            "active_websocket_connections": manager.get_connection_count(),
+            "active_trading_sessions": active_trading_sessions,
+            "deriv_connections": len(deriv_connections),
+            "paper_trading_sessions": len(paper_trading_managers)
+        },
+        "totals": {
+            "total_ticks_processed": performance_monitor.total_ticks,
+            "total_trades_executed": performance_monitor.total_trades,
+            "total_errors": performance_monitor.total_errors
+        }
+    })
+
+
+@app.get("/api/dashboard/trading-summary")
+async def get_trading_summary():
+    """Get summary of all active trading sessions"""
+    sessions = []
+    
+    for telegram_id, tm in trading_managers.items():
+        status = tm.get_status() if hasattr(tm, 'get_status') else {}
+        sessions.append({
+            "telegram_id": telegram_id,
+            "state": status.get("state", "UNKNOWN"),
+            "strategy": status.get("strategy"),
+            "symbol": status.get("symbol"),
+            "trades": status.get("session_trades", 0),
+            "profit": status.get("session_profit", 0.0),
+            "win_rate": status.get("win_rate", 0.0),
+            "balance": status.get("balance", 0.0)
+        })
+    
+    total_profit = sum(s["profit"] for s in sessions)
+    total_trades = sum(s["trades"] for s in sessions)
+    active_count = sum(1 for s in sessions if s["state"] == "RUNNING")
+    
+    return JSONResponse({
+        "timestamp": datetime.now().isoformat(),
+        "summary": {
+            "total_sessions": len(sessions),
+            "active_sessions": active_count,
+            "total_trades": total_trades,
+            "total_profit": total_profit
+        },
+        "sessions": sessions
+    })
+
+
+@app.get("/api/dashboard/hourly-profits/{telegram_id}")
+async def get_hourly_profits(telegram_id: int):
+    """Get hourly profit distribution for a user"""
+    if telegram_id not in trading_managers:
+        return JSONResponse({
+            "success": False,
+            "error": "No trading session found",
+            "hourly_profits": {}
+        })
+    
+    tm = trading_managers[telegram_id]
+    
+    if hasattr(tm, 'analytics') and tm.analytics:
+        hourly = tm.analytics.hourly_profits if hasattr(tm.analytics, 'hourly_profits') else {}
+        return JSONResponse({
+            "success": True,
+            "hourly_profits": hourly,
+            "best_hours": tm.analytics.get_best_trading_hours() if hasattr(tm.analytics, 'get_best_trading_hours') else []
+        })
+    
+    return JSONResponse({
+        "success": False,
+        "error": "Analytics not available",
+        "hourly_profits": {}
+    })
+
+
+# ==================== Paper Trading API ====================
+
+@app.post("/api/paper-trading/start")
+async def start_paper_trading(request: PaperTradingStartRequest):
+    """Start a paper trading session"""
+    telegram_id = request.telegram_id
+    
+    if telegram_id in paper_trading_managers:
+        existing = paper_trading_managers[telegram_id]
+        if existing.is_running:
+            return JSONResponse({
+                "success": False,
+                "error": "Paper trading session already running"
+            })
+    
+    pm = PaperTradingManager(
+        initial_balance=request.initial_balance,
+        payout_percent=request.payout_percent
+    )
+    pm.set_simulated_win_rate(request.simulated_win_rate)
+    pm.start_session()
+    
+    paper_trading_managers[telegram_id] = pm
+    
+    logger.info(f"Paper trading started for telegram_id: {telegram_id}")
+    return JSONResponse({
+        "success": True,
+        "message": "Paper trading session started",
+        "status": pm.get_status()
+    })
+
+
+@app.post("/api/paper-trading/stop")
+async def stop_paper_trading(request: PaperTradingStopRequest):
+    """Stop a paper trading session and get results"""
+    telegram_id = request.telegram_id
+    
+    if telegram_id not in paper_trading_managers:
+        return JSONResponse({
+            "success": False,
+            "error": "No paper trading session found"
+        })
+    
+    pm = paper_trading_managers[telegram_id]
+    result = pm.stop_session()
+    
+    paper_trading_managers.pop(telegram_id, None)
+    
+    logger.info(f"Paper trading stopped for telegram_id: {telegram_id}")
+    return JSONResponse({
+        "success": True,
+        "result": {
+            "total_trades": result.total_trades,
+            "wins": result.wins,
+            "losses": result.losses,
+            "win_rate": result.win_rate,
+            "total_profit": result.total_profit,
+            "max_drawdown": result.max_drawdown,
+            "max_consecutive_wins": result.max_consecutive_wins,
+            "max_consecutive_losses": result.max_consecutive_losses,
+            "avg_profit_per_trade": result.avg_profit_per_trade,
+            "profit_factor": result.profit_factor,
+            "start_balance": result.start_balance,
+            "end_balance": result.end_balance
+        }
+    })
+
+
+@app.post("/api/paper-trading/trade")
+async def execute_paper_trade(request: PaperTradeRequest):
+    """Execute a paper trade"""
+    telegram_id = request.telegram_id
+    
+    if telegram_id not in paper_trading_managers:
+        return JSONResponse({
+            "success": False,
+            "error": "No paper trading session found. Start a session first."
+        })
+    
+    pm = paper_trading_managers[telegram_id]
+    
+    if not pm.is_running:
+        return JSONResponse({
+            "success": False,
+            "error": "Paper trading session is not running"
+        })
+    
+    trade = pm.execute_trade(
+        symbol=request.symbol,
+        contract_type=request.contract_type,
+        stake=request.stake,
+        duration=request.duration,
+        duration_unit=request.duration_unit
+    )
+    
+    if trade:
+        return JSONResponse({
+            "success": True,
+            "trade_id": trade.trade_id,
+            "message": "Paper trade executed"
+        })
+    else:
+        return JSONResponse({
+            "success": False,
+            "error": "Failed to execute paper trade (insufficient balance or trade in progress)"
+        })
+
+
+@app.get("/api/paper-trading/status/{telegram_id}")
+async def get_paper_trading_status(telegram_id: int):
+    """Get paper trading session status"""
+    if telegram_id not in paper_trading_managers:
+        return JSONResponse({
+            "success": False,
+            "error": "No paper trading session found",
+            "is_running": False
+        })
+    
+    pm = paper_trading_managers[telegram_id]
+    return JSONResponse({
+        "success": True,
+        **pm.get_status()
+    })
+
+
+@app.get("/api/paper-trading/history/{telegram_id}")
+async def get_paper_trading_history(telegram_id: int, limit: int = 50):
+    """Get paper trading trade history"""
+    if telegram_id not in paper_trading_managers:
+        return JSONResponse({
+            "success": False,
+            "error": "No paper trading session found",
+            "trades": []
+        })
+    
+    pm = paper_trading_managers[telegram_id]
+    return JSONResponse({
+        "success": True,
+        "trades": pm.get_trade_history(limit)
+    })
+
+
+@app.get("/api/paper-trading/equity/{telegram_id}")
+async def get_paper_trading_equity(telegram_id: int):
+    """Get paper trading equity curve"""
+    if telegram_id not in paper_trading_managers:
+        return JSONResponse({
+            "success": False,
+            "error": "No paper trading session found",
+            "equity_curve": []
+        })
+    
+    pm = paper_trading_managers[telegram_id]
+    return JSONResponse({
+        "success": True,
+        "equity_curve": pm.get_equity_curve()
+    })
 
 
 # ==================== Run Server ====================
