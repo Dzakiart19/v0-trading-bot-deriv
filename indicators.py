@@ -3,7 +3,7 @@ Technical Indicators - RSI, EMA, MACD, Stochastic, ADX, ATR calculations
 """
 
 import math
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from collections import deque
 
 def safe_float(value, default=0.0) -> float:
@@ -392,6 +392,139 @@ def calculate_volatility_percentile(
     percentile = (below_count / len(recent)) * 100
     
     return safe_float(percentile)
+
+
+class IndicatorCache:
+    """
+    Incremental indicator cache for performance optimization.
+    Caches EMA, RSI, MACD values and only updates incrementally when new data arrives.
+    """
+    
+    def __init__(self, max_size: int = 200):
+        self.max_size = max_size
+        self._prices: deque = deque(maxlen=max_size)
+        self._ema_cache: Dict[int, float] = {}  # period -> latest EMA
+        self._rsi_cache: Optional[float] = None
+        self._rsi_avg_gain: float = 0.0
+        self._rsi_avg_loss: float = 0.0
+        self._rsi_period: int = 14
+        self._macd_cache: Optional[Dict[str, float]] = None
+        self._adx_cache: Optional[float] = None
+        self._last_update_count: int = 0
+        self._warmup_complete: bool = False
+    
+    def add_price(self, price: float) -> None:
+        """Add new price and update cached indicators incrementally"""
+        prev_price = self._prices[-1] if self._prices else price
+        self._prices.append(price)
+        
+        # Update EMA caches incrementally
+        for period, last_ema in list(self._ema_cache.items()):
+            if len(self._prices) >= period:
+                multiplier = 2 / (period + 1)
+                new_ema = (price - last_ema) * multiplier + last_ema
+                self._ema_cache[period] = safe_float(new_ema)
+        
+        # Update RSI incrementally
+        if len(self._prices) > self._rsi_period:
+            change = price - prev_price
+            gain = max(0, change)
+            loss = max(0, -change)
+            self._rsi_avg_gain = (self._rsi_avg_gain * (self._rsi_period - 1) + gain) / self._rsi_period
+            self._rsi_avg_loss = (self._rsi_avg_loss * (self._rsi_period - 1) + loss) / self._rsi_period
+            if self._rsi_avg_loss == 0:
+                self._rsi_cache = 100.0
+            else:
+                rs = self._rsi_avg_gain / self._rsi_avg_loss
+                self._rsi_cache = safe_float(100 - (100 / (1 + rs)))
+        
+        self._last_update_count += 1
+        if self._last_update_count >= 50:
+            self._warmup_complete = True
+    
+    def get_ema(self, period: int) -> Optional[float]:
+        """Get cached EMA value, initializing if needed"""
+        if len(self._prices) < period:
+            return None
+        
+        if period not in self._ema_cache:
+            # Initialize EMA with SMA
+            prices_list = list(self._prices)
+            sma = sum(prices_list[:period]) / period
+            self._ema_cache[period] = safe_float(sma)
+            # Calculate full EMA from start
+            ema = sma
+            multiplier = 2 / (period + 1)
+            for p in prices_list[period:]:
+                ema = (p - ema) * multiplier + ema
+            self._ema_cache[period] = safe_float(ema)
+        
+        return self._ema_cache.get(period)
+    
+    def get_rsi(self, period: int = 14) -> Optional[float]:
+        """Get cached RSI value"""
+        if len(self._prices) < period + 1:
+            return None
+        
+        if self._rsi_cache is None or self._rsi_period != period:
+            # Initialize RSI
+            self._rsi_period = period
+            prices_list = list(self._prices)
+            gains = []
+            losses = []
+            for i in range(1, len(prices_list)):
+                change = prices_list[i] - prices_list[i-1]
+                gains.append(max(0, change))
+                losses.append(max(0, -change))
+            
+            if len(gains) >= period:
+                self._rsi_avg_gain = sum(gains[:period]) / period
+                self._rsi_avg_loss = sum(losses[:period]) / period
+                
+                for i in range(period, len(gains)):
+                    self._rsi_avg_gain = (self._rsi_avg_gain * (period - 1) + gains[i]) / period
+                    self._rsi_avg_loss = (self._rsi_avg_loss * (period - 1) + losses[i]) / period
+                
+                if self._rsi_avg_loss == 0:
+                    self._rsi_cache = 100.0
+                else:
+                    rs = self._rsi_avg_gain / self._rsi_avg_loss
+                    self._rsi_cache = safe_float(100 - (100 / (1 + rs)))
+        
+        return self._rsi_cache
+    
+    def get_macd(self) -> Optional[Dict[str, float]]:
+        """Get cached MACD values (recalculated on demand)"""
+        if len(self._prices) < 35:  # 26 + 9 signal period
+            return None
+        
+        prices_list = list(self._prices)
+        macd_line, signal_line, histogram = calculate_macd(prices_list)
+        if macd_line and signal_line and histogram:
+            self._macd_cache = {
+                "macd": macd_line[-1],
+                "signal": signal_line[-1],
+                "histogram": histogram[-1]
+            }
+        return self._macd_cache
+    
+    def is_warmed_up(self) -> bool:
+        """Check if cache has enough data for reliable signals"""
+        return self._warmup_complete and len(self._prices) >= 50
+    
+    def get_price_count(self) -> int:
+        """Get number of prices in cache"""
+        return len(self._prices)
+    
+    def clear(self):
+        """Clear all cached data"""
+        self._prices.clear()
+        self._ema_cache.clear()
+        self._rsi_cache = None
+        self._macd_cache = None
+        self._last_update_count = 0
+        self._warmup_complete = False
+
 
 
 class TechnicalIndicators:

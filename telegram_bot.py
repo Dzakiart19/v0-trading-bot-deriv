@@ -205,6 +205,7 @@ class TelegramBot:
         app.add_handler(CommandHandler("pair", self._cmd_pair))
         app.add_handler(CommandHandler("language", self._cmd_language))
         app.add_handler(CommandHandler("webapp", self._cmd_webapp))
+        app.add_handler(CommandHandler("reset_breach", self._cmd_reset_breach))
         
         # Callback queries
         app.add_handler(CallbackQueryHandler(self._handle_callback))
@@ -428,6 +429,33 @@ Klik tombol di bawah untuk membuka WebApp:
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+    
+    async def _cmd_reset_breach(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /reset_breach command - Clear breach state to resume trading"""
+        user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            return
+        
+        if user.id not in self._trading_managers:
+            await message.reply_text("⚠️ Tidak ada sesi trading aktif. Silakan login dulu dengan /login")
+            return
+        
+        tm = self._trading_managers[user.id]
+        if hasattr(tm, 'money_manager') and tm.money_manager:
+            is_breached, reason = tm.money_manager.is_breached()
+            if is_breached:
+                tm.money_manager.clear_breach()
+                await message.reply_text(
+                    f"✅ <b>Breach State Dihapus</b>\n\n"
+                    f"Alasan sebelumnya: {html.escape(reason)}\n\n"
+                    f"Trading dapat dilanjutkan kembali.",
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await message.reply_text("ℹ️ Tidak ada breach state aktif.")
+        else:
+            await message.reply_text("⚠️ Money manager tidak tersedia.")
     
     async def _cmd_login(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /login command"""

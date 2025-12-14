@@ -4,6 +4,7 @@ Fixed: Connection readiness barrier and proper state management
 """
 
 import json
+import random
 import time
 import logging
 import threading
@@ -12,6 +13,55 @@ from collections import deque
 import websocket
 
 logger = logging.getLogger(__name__)
+
+
+class HeartbeatMetrics:
+    """Track WebSocket heartbeat health metrics"""
+    
+    def __init__(self):
+        self.pings_sent = 0
+        self.pongs_received = 0
+        self.last_ping_time = 0.0
+        self.last_pong_time = 0.0
+        self.latencies: deque = deque(maxlen=100)
+        self.missed_pongs = 0
+    
+    def record_ping(self):
+        self.pings_sent += 1
+        self.last_ping_time = time.time()
+    
+    def record_pong(self):
+        self.pongs_received += 1
+        self.last_pong_time = time.time()
+        if self.last_ping_time > 0:
+            latency = (self.last_pong_time - self.last_ping_time) * 1000  # ms
+            self.latencies.append(latency)
+    
+    def record_missed_pong(self):
+        self.missed_pongs += 1
+    
+    def get_avg_latency(self) -> float:
+        if not self.latencies:
+            return 0.0
+        return sum(self.latencies) / len(self.latencies)
+    
+    def get_health_score(self) -> float:
+        """Returns health score 0-100"""
+        if self.pings_sent == 0:
+            return 100.0
+        response_rate = self.pongs_received / self.pings_sent
+        return min(100.0, response_rate * 100)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "pings_sent": self.pings_sent,
+            "pongs_received": self.pongs_received,
+            "missed_pongs": self.missed_pongs,
+            "avg_latency_ms": round(self.get_avg_latency(), 2),
+            "health_score": round(self.get_health_score(), 1),
+            "last_ping": self.last_ping_time,
+            "last_pong": self.last_pong_time
+        }
 
 class DerivWebSocket:
     """WebSocket client for Deriv API with multi-symbol support"""
@@ -78,6 +128,9 @@ class DerivWebSocket:
         self._last_successful_request = 0
         self._total_requests = 0
         self._successful_requests = 0
+        
+        # Heartbeat metrics
+        self._heartbeat_metrics = HeartbeatMetrics()
         
         # Callbacks
         self.on_balance_update: Optional[Callable] = None
@@ -154,9 +207,12 @@ class DerivWebSocket:
             
             if self._running and self._reconnect_attempts < self._max_reconnect_attempts:
                 self._reconnect_attempts += 1
-                delay = self._reconnect_delay * (2 ** (self._reconnect_attempts - 1))
-                delay = min(delay, 30)  # Max 30 seconds delay
-                logger.info(f"Reconnecting in {delay}s (attempt {self._reconnect_attempts})")
+                base_delay = self._reconnect_delay * (2 ** (self._reconnect_attempts - 1))
+                base_delay = min(base_delay, 30)  # Max 30 seconds base delay
+                # Add random jitter (0-2 seconds) to prevent thundering herd
+                jitter = random.uniform(0, 2)
+                delay = base_delay + jitter
+                logger.info(f"Reconnecting in {delay:.1f}s (attempt {self._reconnect_attempts}, jitter: {jitter:.2f}s)")
                 time.sleep(delay)
                 
                 # Re-create WebSocket and reconnect

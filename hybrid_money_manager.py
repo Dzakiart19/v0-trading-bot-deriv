@@ -1,9 +1,13 @@
 """
 Hybrid Money Manager - Fibonacci-based progressive recovery system with risk management
 Enhanced with anti-martingale option and balance protection
+IMPROVED: Absolute balance guard, breach state persistence, dynamic stake caps
 """
 
+import json
 import logging
+import os
+import random
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -11,6 +15,8 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+BREACH_STATE_FILE = "logs/breach_state.json"
 
 
 class RiskLevel(Enum):
@@ -99,6 +105,21 @@ class HybridMoneyManager:
     # Warning thresholds (percentage of loss limit reached)
     WARNING_THRESHOLDS = [0.50, 0.75, 0.90]
     
+    # Absolute balance guard - stop if balance drops below this % of starting balance
+    ABSOLUTE_BALANCE_GUARD_PCT = 0.10  # 10% of starting balance
+    
+    # Per-strategy hard stake ceilings (max stake regardless of recovery level)
+    STRATEGY_STAKE_CEILINGS = {
+        "AMT": 10.0,           # Max $10 for accumulator
+        "SNIPER": 5.0,         # Max $5 for sniper
+        "TERMINAL": 8.0,
+        "TICK_PICKER": 8.0,
+        "DIGITPAD": 10.0,
+        "LDP": 10.0,
+        "MULTI_INDICATOR": 8.0,
+        "DEFAULT": 10.0
+    }
+    
     def __init__(
         self,
         base_stake: float = 1.0,
@@ -133,6 +154,13 @@ class HybridMoneyManager:
         self._last_balance_check = 0
         self._cached_balance = 0.0
         self._balance_check_interval = 10  # seconds
+        
+        # Breach state tracking
+        self._breach_triggered = False
+        self._breach_reason = ""
+        
+        # Load any persisted breach state
+        self._load_breach_state()
     
     def start_session(self, starting_balance: float, strategy_name: Optional[str] = None) -> None:
         """Initialize a new trading session"""
@@ -157,11 +185,26 @@ class HybridMoneyManager:
         )
         self.session_loss_limit = starting_balance * loss_limit_pct
         
+        # Calculate absolute balance guard threshold
+        self.absolute_guard_balance = starting_balance * self.ABSOLUTE_BALANCE_GUARD_PCT
+        
+        # Get strategy stake ceiling
+        self.stake_ceiling = self.STRATEGY_STAKE_CEILINGS.get(
+            self.strategy_name,
+            self.STRATEGY_STAKE_CEILINGS["DEFAULT"]
+        )
+        
+        # Check if breach state was previously triggered
+        if self._breach_triggered:
+            logger.warning(f"Previous breach state detected: {self._breach_reason}")
+        
         logger.info(
             f"Session started | Balance: {starting_balance:.2f} | "
             f"Risk: {self.risk_level.value} | Base stake: {self.base_stake:.2f} | "
             f"Recovery: {self.recovery_mode.value} | "
-            f"Loss limit: {self.session_loss_limit:.2f} ({loss_limit_pct*100:.0f}%)"
+            f"Loss limit: {self.session_loss_limit:.2f} ({loss_limit_pct*100:.0f}%) | "
+            f"Absolute guard: {self.absolute_guard_balance:.2f} | "
+            f"Stake ceiling: {self.stake_ceiling:.2f}"
         )
     
     def update_balance(self, current_balance: float):
@@ -188,9 +231,21 @@ class HybridMoneyManager:
         
         balance = self.metrics.current_balance
         
+        # Check breach state first - if triggered, stop trading
+        if self._breach_triggered:
+            logger.warning(f"Trading blocked - breach state active: {self._breach_reason}")
+            return 0
+        
+        # ABSOLUTE BALANCE GUARD - Critical safety check
+        if balance < self.absolute_guard_balance:
+            self._trigger_breach(
+                f"Absolute balance guard triggered: ${balance:.2f} < ${self.absolute_guard_balance:.2f} (10% of starting)"
+            )
+            return 0
+        
         # Check if we should stop (session loss limit)
         if self._check_session_loss_exceeded():
-            logger.warning("Session loss limit reached - stopping")
+            self._trigger_breach("Session loss limit reached")
             return 0
         
         # Check minimum balance threshold
@@ -215,6 +270,16 @@ class HybridMoneyManager:
         
         # Minimum stake
         stake = max(stake, 0.35)
+        
+        # Apply strategy-specific stake ceiling
+        stake = min(stake, self.stake_ceiling)
+        
+        # Dynamic stake cap based on current win rate (reduce stake if losing)
+        if self.metrics.total_trades >= 5:
+            win_rate = self.metrics.wins / self.metrics.total_trades
+            if win_rate < 0.4:  # Less than 40% win rate
+                stake = min(stake, self.base_stake)  # Cap at base stake
+                logger.debug(f"Win rate cap applied: {win_rate*100:.1f}% -> stake capped to base")
         
         # Final balance check
         if stake > balance * 0.5:
@@ -526,3 +591,60 @@ class HybridMoneyManager:
             self.metrics.recovery_level = 0
         self.is_recovering = False
         logger.info("Recovery state reset")
+    
+    def _trigger_breach(self, reason: str):
+        """Trigger breach state and persist to file"""
+        self._breach_triggered = True
+        self._breach_reason = reason
+        self._save_breach_state()
+        logger.error(f"BREACH TRIGGERED: {reason}")
+    
+    def clear_breach(self):
+        """Clear breach state (manual reset only)"""
+        self._breach_triggered = False
+        self._breach_reason = ""
+        self._clear_breach_state()
+        logger.info("Breach state cleared")
+    
+    def is_breached(self) -> tuple:
+        """Check if breach state is active"""
+        return self._breach_triggered, self._breach_reason
+    
+    def _save_breach_state(self):
+        """Persist breach state to file"""
+        try:
+            os.makedirs(os.path.dirname(BREACH_STATE_FILE), exist_ok=True)
+            state = {
+                "triggered": self._breach_triggered,
+                "reason": self._breach_reason,
+                "timestamp": time.time(),
+                "strategy": self.strategy_name,
+                "balance_at_breach": self.metrics.current_balance if self.metrics else 0
+            }
+            with open(BREACH_STATE_FILE, 'w') as f:
+                json.dump(state, f, indent=2)
+            logger.info(f"Breach state saved to {BREACH_STATE_FILE}")
+        except Exception as e:
+            logger.error(f"Failed to save breach state: {e}")
+    
+    def _load_breach_state(self):
+        """Load breach state from file"""
+        try:
+            if os.path.exists(BREACH_STATE_FILE):
+                with open(BREACH_STATE_FILE, 'r') as f:
+                    state = json.load(f)
+                self._breach_triggered = state.get("triggered", False)
+                self._breach_reason = state.get("reason", "")
+                if self._breach_triggered:
+                    logger.warning(f"Loaded breach state from file: {self._breach_reason}")
+        except Exception as e:
+            logger.error(f"Failed to load breach state: {e}")
+    
+    def _clear_breach_state(self):
+        """Remove breach state file"""
+        try:
+            if os.path.exists(BREACH_STATE_FILE):
+                os.remove(BREACH_STATE_FILE)
+                logger.info("Breach state file removed")
+        except Exception as e:
+            logger.error(f"Failed to clear breach state file: {e}")

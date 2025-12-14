@@ -1468,6 +1468,47 @@ async def get_deriv_account_info(telegram_id: int = Query(...)):
     return {"error": "No account connected"}
 
 
+@app.post("/api/money-manager/clear-breach")
+async def clear_breach_state(telegram_id: int = Query(...)):
+    """Clear breach state to allow trading to resume"""
+    tm = trading_managers.get(telegram_id)
+    if not tm:
+        return {"success": False, "error": "No trading manager found"}
+    
+    if hasattr(tm, 'money_manager') and tm.money_manager:
+        is_breached, reason = tm.money_manager.is_breached()
+        if is_breached:
+            tm.money_manager.clear_breach()
+            return {
+                "success": True,
+                "message": "Breach state cleared",
+                "previous_reason": reason
+            }
+        return {"success": True, "message": "No breach state was active"}
+    
+    return {"success": False, "error": "Money manager not available"}
+
+
+@app.get("/api/money-manager/status")
+async def get_money_manager_status(telegram_id: int = Query(...)):
+    """Get money manager status including breach state"""
+    tm = trading_managers.get(telegram_id)
+    if not tm:
+        return {"error": "No trading manager found"}
+    
+    if hasattr(tm, 'money_manager') and tm.money_manager:
+        mm = tm.money_manager
+        is_breached, reason = mm.is_breached()
+        summary = mm.get_session_summary() if hasattr(mm, 'get_session_summary') else {}
+        return {
+            "is_breached": is_breached,
+            "breach_reason": reason,
+            "session_summary": summary
+        }
+    
+    return {"error": "Money manager not available"}
+
+
 # ==================== WebSocket ====================
 
 @app.websocket("/ws/stream")
