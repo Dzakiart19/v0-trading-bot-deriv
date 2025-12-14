@@ -110,6 +110,9 @@ class TerminalStrategy:
     
     def add_tick(self, tick: Dict[str, Any]) -> Optional[TerminalSignal]:
         """Add new tick data and analyze for signals"""
+        if not self.is_trading:
+            return None
+        
         self.ticks.append(tick)
         price = tick.get("quote", tick.get("price", 0))
         if price > 0:
@@ -117,7 +120,6 @@ class TerminalStrategy:
             if len(self.prices) > 200:
                 self.prices = self.prices[-200:]
         
-        # Analyze for trading signal
         return self.analyze()
     
     def analyze(self) -> Optional[TerminalSignal]:
@@ -439,3 +441,35 @@ class TerminalStrategy:
             "consecutive_losses": self.consecutive_losses,
             "current_level": self.current_level
         }
+    
+    def reset(self):
+        """Reset strategy state - unified lifecycle hook"""
+        self.ticks.clear()
+        self.prices.clear()
+        self.signals.clear()
+        self.last_signal_time = 0
+        self.consecutive_wins = 0
+        self.consecutive_losses = 0
+        self.current_level = 0
+        self._is_trading = True
+        logger.info(f"[{self.symbol}] Terminal strategy reset")
+    
+    def start_trading(self):
+        """Start trading session - unified lifecycle hook"""
+        self._is_trading = True
+        self.last_signal_time = 0
+        logger.info(f"[{self.symbol}] Terminal trading started")
+    
+    def stop_trading(self):
+        """Stop trading session - unified lifecycle hook"""
+        self._is_trading = False
+        logger.info(f"[{self.symbol}] Terminal trading stopped")
+    
+    def is_ready(self) -> bool:
+        """Check if strategy has completed warmup - unified lifecycle hook"""
+        return len(self.prices) >= self.MIN_TICKS
+    
+    @property
+    def is_trading(self) -> bool:
+        """Check if trading is enabled"""
+        return getattr(self, '_is_trading', True)

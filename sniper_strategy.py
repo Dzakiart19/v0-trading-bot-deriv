@@ -112,11 +112,14 @@ class SniperStrategy:
         self.signal_cooldown = 20  # Ultra-selective - long cooldown between entries
         
         # Trading state - Default to True for automatic trading
-        self.is_trading = True
+        self._is_trading = True
         self.ping_ms = 0
     
     def add_tick(self, tick: Dict[str, Any]) -> Optional[SniperSignal]:
         """Add new tick data and analyze for signals"""
+        if not self.is_trading:
+            return None
+        
         self.ticks.append(tick)
         price = tick.get("quote", tick.get("price", 0))
         if price > 0:
@@ -124,10 +127,7 @@ class SniperStrategy:
             if len(self.prices) > 200:
                 self.prices = self.prices[-200:]
         
-        # Analyze for trading signal (only when trading is enabled)
-        if self.is_trading:
-            return self.analyze()
-        return None
+        return self.analyze()
     
     def set_strategy(self, strategy_name: str):
         """Set active sub-strategy"""
@@ -644,9 +644,14 @@ class SniperStrategy:
         if "percentage" in kwargs:
             self.percentage_risk = kwargs["percentage"]
     
-    def start_trading(self):
-        """Start trading session"""
-        self.is_trading = True
+    def reset(self):
+        """Reset strategy state - unified lifecycle hook"""
+        self.ticks.clear()
+        self.prices.clear()
+        self.signals.clear()
+        self.last_signal_time = 0
+        self.current_level = 0
+        self._is_trading = True
         self.session_stats = {
             "wins": 0,
             "losses": 0,
@@ -654,11 +659,35 @@ class SniperStrategy:
             "start_time": time.time(),
             "duration": 0
         }
+        logger.info(f"[{self.symbol}] Sniper strategy reset")
+    
+    def start_trading(self):
+        """Start trading session - unified lifecycle hook"""
+        self._is_trading = True
+        self.last_signal_time = 0
+        self.session_stats = {
+            "wins": 0,
+            "losses": 0,
+            "profit": 0.0,
+            "start_time": time.time(),
+            "duration": 0
+        }
+        logger.info(f"[{self.symbol}] Sniper trading started")
     
     def stop_trading(self):
-        """Stop trading session"""
-        self.is_trading = False
+        """Stop trading session - unified lifecycle hook"""
+        self._is_trading = False
         self.session_stats["duration"] = time.time() - self.session_stats["start_time"]
+        logger.info(f"[{self.symbol}] Sniper trading stopped")
+    
+    def is_ready(self) -> bool:
+        """Check if strategy has completed warmup - unified lifecycle hook"""
+        return len(self.prices) >= self.MIN_TICKS
+    
+    @property
+    def is_trading(self) -> bool:
+        """Check if trading is enabled"""
+        return getattr(self, '_is_trading', True)
     
     def get_stats(self) -> Dict[str, Any]:
         """Get strategy statistics"""

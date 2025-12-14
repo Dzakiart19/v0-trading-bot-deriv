@@ -159,6 +159,9 @@ class MultiIndicatorStrategy:
         Returns:
             Signal if conditions met, None otherwise
         """
+        if not self.is_trading:
+            return None
+        
         quote = safe_float(tick.get("quote", 0))
         if quote <= 0:
             return None
@@ -488,11 +491,32 @@ class MultiIndicatorStrategy:
         }
     
     def reset(self):
-        """Reset strategy state"""
+        """Reset strategy state - unified lifecycle hook"""
         self.tick_history.clear()
         self.highs.clear()
         self.lows.clear()
         self.closes.clear()
         self.last_signal_time = 0
         self.last_signal = None
+        self._is_trading = True
         logger.info(f"[{self.symbol}] Strategy reset")
+    
+    def start_trading(self):
+        """Start trading session - unified lifecycle hook"""
+        self._is_trading = True
+        self.last_signal_time = 0
+        logger.info(f"[{self.symbol}] Trading started")
+    
+    def stop_trading(self):
+        """Stop trading session - unified lifecycle hook"""
+        self._is_trading = False
+        logger.info(f"[{self.symbol}] Trading stopped")
+    
+    def is_ready(self) -> bool:
+        """Check if strategy has completed warmup - unified lifecycle hook"""
+        return len(self.closes) >= 50
+    
+    @property
+    def is_trading(self) -> bool:
+        """Check if trading is enabled"""
+        return getattr(self, '_is_trading', True)
