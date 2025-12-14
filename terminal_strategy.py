@@ -186,9 +186,7 @@ class TerminalStrategy:
         """Calculate scores for each indicator with dynamic thresholds"""
         scores = {}
         
-        # Get dynamic thresholds based on volatility
-        volatility = self._calculate_volatility()
-        vol_percentile = min(100, max(0, volatility * 50))  # Normalize volatility to percentile
+        vol_percentile = self._calculate_volatility_percentile()
         
         if self.use_dynamic_thresholds:
             self.current_thresholds = self.dynamic_thresholds.adjust_thresholds(vol_percentile)
@@ -354,8 +352,30 @@ class TerminalStrategy:
         variance = sum((p - mean) ** 2 for p in recent) / len(recent)
         std_dev = math.sqrt(variance)
         
-        # Normalize volatility (typical range 0.5 - 3.0)
         return (std_dev / mean) * 100
+    
+    def _calculate_volatility_percentile(self) -> float:
+        """Calculate volatility as percentile of historical range (0-100)"""
+        if len(self.prices) < 50:
+            return 50.0
+        
+        lookback = min(100, len(self.prices))
+        atr_history = []
+        
+        for i in range(1, lookback):
+            idx = -lookback + i
+            high = max(self.prices[idx], self.prices[idx - 1])
+            low = min(self.prices[idx], self.prices[idx - 1])
+            atr_history.append(high - low)
+        
+        if len(atr_history) < 2:
+            return 50.0
+        
+        current_atr = atr_history[-1]
+        below_count = sum(1 for v in atr_history if v < current_atr)
+        percentile = (below_count / len(atr_history)) * 100
+        
+        return max(0.0, min(100.0, percentile))
     
     def get_recovery_stake(self, base_stake: float) -> float:
         """Calculate stake for Hybrid Recovery System"""

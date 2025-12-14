@@ -4,6 +4,7 @@ Multi-Indicator Strategy - Main trading strategy with RSI, EMA, MACD, Stochastic
 
 import logging
 import time
+import math
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from collections import deque
@@ -43,12 +44,19 @@ class DynamicThresholds:
         self.base_stoch_overbought = 80
         self.base_adx_strong = 25
     
-    def adjust_thresholds(self, volatility_percentile: float) -> dict:
+    def adjust_thresholds(self, volatility_percentile: Optional[float]) -> dict:
         """
         Adjust thresholds based on volatility percentile (0-100).
-        High volatility (>70): Widen zones for safer entry
+        High volatility (>70): Widen zones for safer entry, RAISE ADX requirement
         Low volatility (<30): Tighten zones for faster entry
+        
+        Returns default thresholds if volatility_percentile is None/invalid.
         """
+        if volatility_percentile is None or math.isnan(volatility_percentile):
+            volatility_percentile = 50.0
+        
+        volatility_percentile = max(0.0, min(100.0, volatility_percentile))
+        
         if volatility_percentile > 70:
             vol_factor = 1.15 + ((volatility_percentile - 70) / 100)
         elif volatility_percentile < 30:
@@ -67,7 +75,7 @@ class DynamicThresholds:
             "rsi_overbought_high": min(90, self.base_rsi_overbought_high + rsi_expansion),
             "stoch_oversold": max(15, self.base_stoch_oversold - rsi_expansion),
             "stoch_overbought": min(85, self.base_stoch_overbought + rsi_expansion),
-            "adx_strong": max(20, self.base_adx_strong - (vol_factor - 1.0) * 5),
+            "adx_strong": min(35, self.base_adx_strong + (vol_factor - 1.0) * 5),
             "volatility_factor": vol_factor,
             "volatility_percentile": volatility_percentile
         }

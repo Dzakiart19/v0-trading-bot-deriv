@@ -210,20 +210,17 @@ class SniperStrategy:
     
     def _get_dynamic_thresholds(self) -> Dict[str, float]:
         """Get current volatility-adjusted thresholds"""
-        if len(self.prices) < 20:
-            return {
-                "rsi_extreme_low": 20,
-                "rsi_extreme_high": 80,
-                "stoch_extreme_low": 20,
-                "stoch_extreme_high": 80
-            }
+        default_thresholds = {
+            "rsi_extreme_low": 20,
+            "rsi_extreme_high": 80,
+            "stoch_extreme_low": 20,
+            "stoch_extreme_high": 80
+        }
         
-        recent = self.prices[-20:]
-        mean = sum(recent) / len(recent)
-        variance = sum((p - mean) ** 2 for p in recent) / len(recent)
-        std_dev = math.sqrt(variance)
-        volatility = (std_dev / mean) * 100 if mean > 0 else 1.0
-        vol_percentile = min(100, max(0, volatility * 50))
+        if len(self.prices) < 50:
+            return default_thresholds
+        
+        vol_percentile = self._calculate_volatility_percentile()
         
         if self.use_dynamic_thresholds:
             self.current_thresholds = self.dynamic_thresholds.adjust_thresholds(vol_percentile)
@@ -233,12 +230,30 @@ class SniperStrategy:
                 "stoch_extreme_low": max(15, self.current_thresholds["stoch_oversold"]),
                 "stoch_extreme_high": min(85, self.current_thresholds["stoch_overbought"])
             }
-        return {
-            "rsi_extreme_low": 20,
-            "rsi_extreme_high": 80,
-            "stoch_extreme_low": 20,
-            "stoch_extreme_high": 80
-        }
+        return default_thresholds
+    
+    def _calculate_volatility_percentile(self) -> float:
+        """Calculate volatility as percentile of historical range (0-100)"""
+        if len(self.prices) < 50:
+            return 50.0
+        
+        lookback = min(100, len(self.prices))
+        atr_history = []
+        
+        for i in range(1, lookback):
+            idx = -lookback + i
+            high = max(self.prices[idx], self.prices[idx - 1])
+            low = min(self.prices[idx], self.prices[idx - 1])
+            atr_history.append(high - low)
+        
+        if len(atr_history) < 2:
+            return 50.0
+        
+        current_atr = atr_history[-1]
+        below_count = sum(1 for v in atr_history if v < current_atr)
+        percentile = (below_count / len(atr_history)) * 100
+        
+        return max(0.0, min(100.0, percentile))
     
     def _rsi_extreme(self) -> Optional[Dict]:
         """RSI Extreme strategy - oversold/overbought with dynamic thresholds"""
