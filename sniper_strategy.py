@@ -12,6 +12,7 @@ import time
 import math
 
 from indicators import TechnicalIndicators
+from strategy import DynamicThresholds
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,11 @@ class SniperStrategy:
         
         # Strategy selection
         self.selected_strategy: Optional[str] = None
+        
+        # Dynamic thresholds based on volatility
+        self.dynamic_thresholds = DynamicThresholds()
+        self.use_dynamic_thresholds = True
+        self.current_thresholds: Optional[Dict[str, float]] = None
         
         # Money management
         self.money_management = MoneyManagement.FIXED_STAKE
@@ -202,24 +208,60 @@ class SniperStrategy:
             return self._reversal_pattern()
         return None
     
+    def _get_dynamic_thresholds(self) -> Dict[str, float]:
+        """Get current volatility-adjusted thresholds"""
+        if len(self.prices) < 20:
+            return {
+                "rsi_extreme_low": 20,
+                "rsi_extreme_high": 80,
+                "stoch_extreme_low": 20,
+                "stoch_extreme_high": 80
+            }
+        
+        recent = self.prices[-20:]
+        mean = sum(recent) / len(recent)
+        variance = sum((p - mean) ** 2 for p in recent) / len(recent)
+        std_dev = math.sqrt(variance)
+        volatility = (std_dev / mean) * 100 if mean > 0 else 1.0
+        vol_percentile = min(100, max(0, volatility * 50))
+        
+        if self.use_dynamic_thresholds:
+            self.current_thresholds = self.dynamic_thresholds.adjust_thresholds(vol_percentile)
+            return {
+                "rsi_extreme_low": max(15, self.current_thresholds["rsi_oversold_low"]),
+                "rsi_extreme_high": min(85, self.current_thresholds["rsi_overbought_high"]),
+                "stoch_extreme_low": max(15, self.current_thresholds["stoch_oversold"]),
+                "stoch_extreme_high": min(85, self.current_thresholds["stoch_overbought"])
+            }
+        return {
+            "rsi_extreme_low": 20,
+            "rsi_extreme_high": 80,
+            "stoch_extreme_low": 20,
+            "stoch_extreme_high": 80
+        }
+    
     def _rsi_extreme(self) -> Optional[Dict]:
-        """RSI Extreme strategy - oversold/overbought"""
+        """RSI Extreme strategy - oversold/overbought with dynamic thresholds"""
         rsi = self.indicators.calculate_rsi(self.prices, 14)
         if rsi is None:
             return None
+        
+        thresholds = self._get_dynamic_thresholds()
+        rsi_low = thresholds["rsi_extreme_low"]
+        rsi_high = thresholds["rsi_extreme_high"]
         
         confirmations = 0
         direction = None
         confidence = 0.5
         
-        # Check RSI extreme
-        if rsi <= 20:
+        # Check RSI extreme with dynamic thresholds
+        if rsi <= rsi_low:
             direction = "BUY"
-            confidence = 0.70 + (20 - rsi) * 0.01
+            confidence = 0.70 + (rsi_low - rsi) * 0.01
             confirmations += 1
-        elif rsi >= 80:
+        elif rsi >= rsi_high:
             direction = "SELL"
-            confidence = 0.70 + (rsi - 80) * 0.01
+            confidence = 0.70 + (rsi - rsi_high) * 0.01
             confirmations += 1
         else:
             return None
@@ -236,13 +278,14 @@ class SniperStrategy:
                 confirmations += 1
                 confidence += 0.05
         
-        # Confirm with Stochastic
+        # Confirm with Stochastic using dynamic thresholds
         stoch = self.indicators.calculate_stochastic(self.prices, 14)
+        thresholds = self._get_dynamic_thresholds()
         if stoch is not None:
-            if direction == "BUY" and stoch < 20:
+            if direction == "BUY" and stoch < thresholds["stoch_extreme_low"]:
                 confirmations += 1
                 confidence += 0.05
-            elif direction == "SELL" and stoch > 80:
+            elif direction == "SELL" and stoch > thresholds["stoch_extreme_high"]:
                 confirmations += 1
                 confidence += 0.05
         
@@ -482,23 +525,29 @@ class SniperStrategy:
         }
     
     def _reversal_pattern(self) -> Optional[Dict]:
-        """Reversal pattern detection"""
+        """Reversal pattern detection with dynamic thresholds"""
         rsi = self.indicators.calculate_rsi(self.prices, 14)
         stoch = self.indicators.calculate_stochastic(self.prices, 14)
         
         if not all([rsi, stoch]):
             return None
         
+        thresholds = self._get_dynamic_thresholds()
+        rsi_low = thresholds["rsi_extreme_low"] + 5  # Slightly less extreme for reversal
+        rsi_high = thresholds["rsi_extreme_high"] - 5
+        stoch_low = thresholds["stoch_extreme_low"]
+        stoch_high = thresholds["stoch_extreme_high"]
+        
         confirmations = 0
         direction = None
         confidence = 0.5
         
-        # Double bottom/top detection
-        if rsi < 25 and stoch < 20:
+        # Double bottom/top detection with dynamic thresholds
+        if rsi < rsi_low and stoch < stoch_low:
             direction = "BUY"
             confirmations += 2
             confidence = 0.70
-        elif rsi > 75 and stoch > 80:
+        elif rsi > rsi_high and stoch > stoch_high:
             direction = "SELL"
             confirmations += 2
             confidence = 0.70

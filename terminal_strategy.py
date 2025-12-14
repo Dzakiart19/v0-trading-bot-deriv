@@ -12,6 +12,7 @@ import time
 import math
 
 from indicators import TechnicalIndicators
+from strategy import DynamicThresholds
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,11 @@ class TerminalStrategy:
         # Smart Analysis state
         self.smart_analysis_enabled = True
         self.hybrid_recovery_enabled = False
+        
+        # Dynamic thresholds based on volatility
+        self.dynamic_thresholds = DynamicThresholds()
+        self.use_dynamic_thresholds = True
+        self.current_thresholds: Optional[Dict[str, float]] = None
         
         # Trading state
         self.current_risk = RiskLevel.MEDIUM
@@ -177,16 +183,32 @@ class TerminalStrategy:
         return signal
     
     def _calculate_indicator_scores(self) -> Dict[str, Any]:
-        """Calculate scores for each indicator"""
+        """Calculate scores for each indicator with dynamic thresholds"""
         scores = {}
         
-        # RSI Analysis - Clear overbought/oversold zones
+        # Get dynamic thresholds based on volatility
+        volatility = self._calculate_volatility()
+        vol_percentile = min(100, max(0, volatility * 50))  # Normalize volatility to percentile
+        
+        if self.use_dynamic_thresholds:
+            self.current_thresholds = self.dynamic_thresholds.adjust_thresholds(vol_percentile)
+            rsi_oversold = self.current_thresholds["rsi_oversold_high"]
+            rsi_overbought = self.current_thresholds["rsi_overbought_low"]
+            stoch_oversold = self.current_thresholds["stoch_oversold"]
+            stoch_overbought = self.current_thresholds["stoch_overbought"]
+        else:
+            rsi_oversold = 35
+            rsi_overbought = 65
+            stoch_oversold = 30
+            stoch_overbought = 70
+        
+        # RSI Analysis - Dynamic overbought/oversold zones
         rsi = self.indicators.calculate_rsi(self.prices, 14)
         if rsi is not None:
-            if rsi < 35:  # Oversold zone
-                scores["rsi"] = {"value": rsi, "signal": "BUY", "strength": min(1.0, (35 - rsi) / 35 + 0.5)}
-            elif rsi > 65:  # Overbought zone
-                scores["rsi"] = {"value": rsi, "signal": "SELL", "strength": min(1.0, (rsi - 65) / 35 + 0.5)}
+            if rsi < rsi_oversold:  # Oversold zone
+                scores["rsi"] = {"value": rsi, "signal": "BUY", "strength": min(1.0, (rsi_oversold - rsi) / rsi_oversold + 0.5)}
+            elif rsi > rsi_overbought:  # Overbought zone
+                scores["rsi"] = {"value": rsi, "signal": "SELL", "strength": min(1.0, (rsi - rsi_overbought) / (100 - rsi_overbought) + 0.5)}
             else:
                 scores["rsi"] = {"value": rsi, "signal": "NEUTRAL", "strength": 0.3}
         
@@ -214,13 +236,13 @@ class TerminalStrategy:
             else:
                 scores["macd"] = {"value": histogram, "signal": "NEUTRAL", "strength": 0}
         
-        # Stochastic - Clear oversold/overbought zones
+        # Stochastic - Dynamic oversold/overbought zones
         stoch = self.indicators.calculate_stochastic(self.prices, 14)
         if stoch is not None:
-            if stoch < 30:  # Oversold zone
-                scores["stochastic"] = {"value": stoch, "signal": "BUY", "strength": min(1.0, (30 - stoch) / 30 + 0.5)}
-            elif stoch > 70:  # Overbought zone
-                scores["stochastic"] = {"value": stoch, "signal": "SELL", "strength": min(1.0, (stoch - 70) / 30 + 0.5)}
+            if stoch < stoch_oversold:  # Oversold zone
+                scores["stochastic"] = {"value": stoch, "signal": "BUY", "strength": min(1.0, (stoch_oversold - stoch) / stoch_oversold + 0.5)}
+            elif stoch > stoch_overbought:  # Overbought zone
+                scores["stochastic"] = {"value": stoch, "signal": "SELL", "strength": min(1.0, (stoch - stoch_overbought) / (100 - stoch_overbought) + 0.5)}
             else:
                 scores["stochastic"] = {"value": stoch, "signal": "NEUTRAL", "strength": 0.3}
         

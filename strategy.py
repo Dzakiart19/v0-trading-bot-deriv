@@ -28,6 +28,51 @@ class Signal:
     timestamp: float
     symbol: str
 
+class DynamicThresholds:
+    """
+    Dynamic threshold adjustment based on ATR volatility percentile.
+    Widens thresholds in high volatility, tightens in low volatility.
+    """
+    
+    def __init__(self):
+        self.base_rsi_oversold_low = 15
+        self.base_rsi_oversold_high = 28
+        self.base_rsi_overbought_low = 72
+        self.base_rsi_overbought_high = 85
+        self.base_stoch_oversold = 20
+        self.base_stoch_overbought = 80
+        self.base_adx_strong = 25
+    
+    def adjust_thresholds(self, volatility_percentile: float) -> dict:
+        """
+        Adjust thresholds based on volatility percentile (0-100).
+        High volatility (>70): Widen zones for safer entry
+        Low volatility (<30): Tighten zones for faster entry
+        """
+        if volatility_percentile > 70:
+            vol_factor = 1.15 + ((volatility_percentile - 70) / 100)
+        elif volatility_percentile < 30:
+            vol_factor = 0.90 - ((30 - volatility_percentile) / 150)
+        else:
+            vol_factor = 1.0
+        
+        vol_factor = max(0.80, min(1.30, vol_factor))
+        
+        rsi_expansion = (vol_factor - 1.0) * 10
+        
+        return {
+            "rsi_oversold_low": max(10, self.base_rsi_oversold_low - rsi_expansion),
+            "rsi_oversold_high": max(20, self.base_rsi_oversold_high - rsi_expansion),
+            "rsi_overbought_low": min(80, self.base_rsi_overbought_low + rsi_expansion),
+            "rsi_overbought_high": min(90, self.base_rsi_overbought_high + rsi_expansion),
+            "stoch_oversold": max(15, self.base_stoch_oversold - rsi_expansion),
+            "stoch_overbought": min(85, self.base_stoch_overbought + rsi_expansion),
+            "adx_strong": max(20, self.base_adx_strong - (vol_factor - 1.0) * 5),
+            "volatility_factor": vol_factor,
+            "volatility_percentile": volatility_percentile
+        }
+
+
 class MultiIndicatorStrategy:
     """
     Enhanced Multi-Indicator Strategy v4.5
@@ -43,6 +88,7 @@ class MultiIndicatorStrategy:
     - Regime Detection: TRENDING, RANGING, TRANSITIONAL
     - Mean Reversion Detection via Z-Score
     - Confluence Scoring (0-100)
+    - DYNAMIC THRESHOLDS: ATR-based threshold adjustment
     """
     
     # Configuration - STRICT THRESHOLDS for quality signals
@@ -84,6 +130,11 @@ class MultiIndicatorStrategy:
         # Configurable thresholds (can be modified for strategies like Sniper)
         self.min_confidence = self.MIN_CONFIDENCE
         self.min_confluence = self.MIN_CONFLUENCE
+        
+        # Dynamic thresholds based on volatility
+        self.dynamic_thresholds = DynamicThresholds()
+        self.use_dynamic_thresholds = True  # Enable by default
+        self.current_thresholds: Optional[dict] = None
         
         # For high/low simulation from tick data
         self.highs: deque = deque(maxlen=200)
@@ -176,6 +227,25 @@ class MultiIndicatorStrategy:
         # Calculate volatility percentile
         vol_percentile = calculate_volatility_percentile(atr)
         
+        # Apply dynamic thresholds based on volatility
+        if self.use_dynamic_thresholds:
+            self.current_thresholds = self.dynamic_thresholds.adjust_thresholds(vol_percentile)
+            rsi_oversold_low = self.current_thresholds["rsi_oversold_low"]
+            rsi_oversold_high = self.current_thresholds["rsi_oversold_high"]
+            rsi_overbought_low = self.current_thresholds["rsi_overbought_low"]
+            rsi_overbought_high = self.current_thresholds["rsi_overbought_high"]
+            stoch_oversold = self.current_thresholds["stoch_oversold"]
+            stoch_overbought = self.current_thresholds["stoch_overbought"]
+            adx_strong = self.current_thresholds["adx_strong"]
+        else:
+            rsi_oversold_low = self.RSI_OVERSOLD_LOW
+            rsi_oversold_high = self.RSI_OVERSOLD_HIGH
+            rsi_overbought_low = self.RSI_OVERBOUGHT_LOW
+            rsi_overbought_high = self.RSI_OVERBOUGHT_HIGH
+            stoch_oversold = self.STOCH_OVERSOLD
+            stoch_overbought = self.STOCH_OVERBOUGHT
+            adx_strong = self.ADX_STRONG
+        
         # Confluence scoring
         confluence = 0
         direction_votes = {"BUY": 0, "SELL": 0}
@@ -187,8 +257,8 @@ class MultiIndicatorStrategy:
         is_uptrend = current_ema_fast > current_ema_slow > current_ema_trend if current_ema_trend else current_ema_fast > current_ema_slow
         is_downtrend = current_ema_fast < current_ema_slow < current_ema_trend if current_ema_trend else current_ema_fast < current_ema_slow
         
-        # RSI Analysis (25 points max) - STRICT ZONES
-        if self.RSI_OVERSOLD_LOW <= current_rsi <= self.RSI_OVERSOLD_HIGH:
+        # RSI Analysis (25 points max) - DYNAMIC ZONES
+        if rsi_oversold_low <= current_rsi <= rsi_oversold_high:
             # Only count if EMA supports the direction
             if is_uptrend or current_ema_fast > current_ema_slow:
                 confluence += 25
@@ -198,7 +268,7 @@ class MultiIndicatorStrategy:
                 confluence += 15  # Reduced score without EMA confirmation
                 direction_votes["BUY"] += 1
                 reasons.append(f"RSI oversold ({current_rsi:.1f}) - needs EMA confirmation")
-        elif self.RSI_OVERBOUGHT_LOW <= current_rsi <= self.RSI_OVERBOUGHT_HIGH:
+        elif rsi_overbought_low <= current_rsi <= rsi_overbought_high:
             if is_downtrend or current_ema_fast < current_ema_slow:
                 confluence += 25
                 direction_votes["SELL"] += 2
@@ -238,18 +308,18 @@ class MultiIndicatorStrategy:
             direction_votes["SELL"] += 1
             reasons.append("MACD bearish")
         
-        # Stochastic Analysis (15 points max)
-        if current_stoch_k < self.STOCH_OVERSOLD:
+        # Stochastic Analysis (15 points max) - DYNAMIC ZONES
+        if current_stoch_k < stoch_oversold:
             confluence += 15
             direction_votes["BUY"] += 1
             reasons.append(f"Stoch oversold ({current_stoch_k:.1f})")
-        elif current_stoch_k > self.STOCH_OVERBOUGHT:
+        elif current_stoch_k > stoch_overbought:
             confluence += 15
             direction_votes["SELL"] += 1
             reasons.append(f"Stoch overbought ({current_stoch_k:.1f})")
         
-        # ADX/DMI Analysis (15 points max)
-        if current_adx >= self.ADX_STRONG:
+        # ADX/DMI Analysis (15 points max) - DYNAMIC THRESHOLD
+        if current_adx >= adx_strong:
             confluence += 15
             if current_plus_di > current_minus_di:
                 direction_votes["BUY"] += 1
@@ -328,12 +398,12 @@ class MultiIndicatorStrategy:
         if direction == "HOLD":
             return None
         
-        # STRICT ADX CHECK: Require minimum trend strength for signal
-        if current_adx < self.ADX_STRONG:
-            logger.debug(f"Signal blocked: ADX {current_adx:.1f} < {self.ADX_STRONG} threshold")
+        # DYNAMIC ADX CHECK: Require minimum trend strength for signal
+        if current_adx < adx_strong:
+            logger.debug(f"Signal blocked: ADX {current_adx:.1f} < {adx_strong:.1f} threshold")
             return None
         
-        # Build indicator snapshot
+        # Build indicator snapshot with dynamic threshold info
         indicators = {
             "rsi": current_rsi,
             "ema_fast": current_ema_fast,
@@ -349,7 +419,8 @@ class MultiIndicatorStrategy:
             "atr": current_atr,
             "zscore": current_zscore,
             "regime": regime,
-            "volatility_percentile": vol_percentile
+            "volatility_percentile": vol_percentile,
+            "dynamic_thresholds": self.current_thresholds if self.use_dynamic_thresholds else None
         }
         
         signal = Signal(

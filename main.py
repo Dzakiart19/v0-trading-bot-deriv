@@ -47,6 +47,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Configure throttled logging for high-frequency modules
+from logging_utils import configure_log_levels
+configure_log_levels()
+
 # Import components (singletons now load with no stale data)
 from telegram_bot import TelegramBot
 import web_server
