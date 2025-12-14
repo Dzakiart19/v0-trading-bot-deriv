@@ -1,187 +1,44 @@
 # Deriv Auto Trading Bot
 
 ## Overview
-A Python-based Telegram bot for Deriv trading with 5 strategies and WebApp integration.
+This project is a Python-based Telegram bot designed for automated trading on the Deriv platform. It integrates with Deriv via WebSocket API, offers five distinct trading strategies, and features a Telegram WebApp for user interaction and configuration. The primary purpose is to provide users with a robust, secure, and user-friendly tool for executing automated trading strategies, aiming for high win rates and efficient risk management.
 
-## Current State
-- Full Python implementation (migrated from Next.js)
-- FastAPI backend on port 5000
-- Telegram Bot with inline keyboards and WebApp support
-- 5 trading strategies with individual WebApps
-- Secure session-based authentication for Telegram WebApp
+## User Preferences
+I want to work iteratively.
+I prefer to get a detailed explanation for each change.
+I want to be asked before you make any major changes to the codebase.
+Do not make changes to the `webapps/` folder, it contains static assets.
+Do not make changes to the file `deriv_ws.py`, it is a core dependency.
 
-## Strategies
-1. **Terminal** - Smart analysis with 80% win rate target
-2. **Tick Picker** - Pattern analysis for digit prediction
-3. **DigitPad** - Digit frequency analysis
-4. **AMT** - Accumulator strategy with growth rate
-5. **Sniper** - High probability trades (80%+)
+## System Architecture
+The system is built around a FastAPI backend (`web_server.py`) serving both API endpoints and static HTML/JavaScript WebApp interfaces for each trading strategy. A separate Python module (`telegram_bot.py`) handles Telegram bot interactions, including inline keyboards and WebApp integration. Communication with the Deriv trading platform is managed via a dedicated WebSocket client (`deriv_ws.py`).
 
-## Architecture
-- `web_server.py` - FastAPI server with WebSocket, API endpoints, and strategy pages
-- `deriv_ws.py` - Deriv WebSocket API client
-- `webapps/` - HTML strategy web interfaces
-  - `index.html` - Main landing page with strategy selection
-  - `terminal.html` - Terminal strategy UI
-  - `tick-picker.html` - Tick Picker strategy UI
-  - `digitpad.html` - DigitPad strategy UI
-  - `amt.html` - AMT Accumulator strategy UI
-  - `sniper.html` - Sniper strategy UI
-  - `multi-indicator.html` - Multi-Indicator strategy UI
-  - `ldp.html` - LDP (Last Digit Prediction) strategy UI
+**Key Architectural Decisions:**
+- **Python-centric Implementation:** The entire application, including the UI, is implemented in Python with FastAPI for the backend, simplifying development and deployment.
+- **Microservices-like Structure:** Core functionalities like Deriv WebSocket communication, Telegram bot logic, and trading managers are encapsulated in separate modules.
+- **Session-based Authentication:** Secure, session-based authentication is implemented for Telegram WebApp users, leveraging `initData` for validation.
+- **Risk Management Integration:** Advanced risk management features such as Fibonacci-based recovery, auto-pause on consecutive losses, dynamic session limits, and entry filtering are integral to the trading managers.
+- **Deployment:** Optimized for deployment on platforms like Koyeb Free Tier with built-in keep-alive mechanisms.
 
-## API Endpoints
-- `GET /` - Main index page
-- `GET /{strategy}` - Individual strategy pages
-- `POST /api/auth/telegram` - Telegram WebApp authentication
-- `GET /api/telegram/check-login` - Check if user logged in via Telegram
-- `POST /api/telegram/sync-deriv-token` - Sync Deriv token (requires session)
-- `POST /api/telegram/sync-deriv-account` - Sync Deriv account (requires session)
-- `GET /api/strategy/configs` - Get all strategy configurations (stakes, trade counts)
-- `GET /api/strategy/{name}/config` - Get single strategy configuration
-- `GET /api/user/strategy` - Get selected strategy
-- `POST /api/user/strategy` - Set selected strategy
-- `POST /api/trade/place` - Place a trade
-- `POST /api/auto-trade/start` - Start auto trading
-- `POST /api/auto-trade/stop` - Stop auto trading
+**UI/UX Decisions:**
+- Each trading strategy has its own dedicated HTML/JavaScript WebApp interface for configuration and monitoring.
+- The main Telegram bot uses inline keyboards for initial interaction and launching WebApps.
 
-## Security Features
-- Session-based authentication via Telegram WebApp initData
-- Session token validation on all sync endpoints
-- `sessionValidated` flag prevents replay attacks
-- No unauthenticated writes to user Deriv tokens
+**Feature Specifications:**
+- **5 Trading Strategies:** Terminal, Tick Picker, DigitPad, AMT (Accumulator), Sniper.
+- **Telegram WebApp Integration:** Seamless user experience for configuring strategies and managing trades directly within Telegram.
+- **Real-time Performance Monitoring:** Via an API endpoint for metrics.
+- **Persistent User Settings:** Storage for user preferences and strategy configurations.
+- **Robust Error Handling:** Includes retry mechanisms for authorization and connection stability.
 
-## Environment Variables Required
-- `TELEGRAM_BOT_TOKEN` - Get from @BotFather on Telegram
-- `DERIV_APP_ID` (optional) - Deriv OAuth App ID (default: 1089)
-- `DERIV_API_TOKEN` (optional) - Deriv API token for trading
-- `APP_URL` (Koyeb) - Your Koyeb app URL for keep-alive (e.g., https://your-app.koyeb.app)
-- `PORT` (Koyeb) - Auto-set by Koyeb, default 8000
+**System Design Choices:**
+- **FastAPI:** Chosen for its high performance, ease of use, and asynchronous capabilities.
+- **WebSocket Communication:** Utilized for real-time data exchange with Deriv and between the WebApp and backend.
+- **Modular Design:** Encourages maintainability and scalability by separating concerns into distinct Python modules.
 
-## Koyeb Deployment (24/7 Free Tier)
-Bot ini sudah siap untuk deploy ke Koyeb free tier dengan fitur keep-alive 24 jam:
-- Self-ping setiap 4 menit ke `/api/health`
-- Mencegah app sleep karena tidak ada traffic
-- File: `Dockerfile`, `Procfile`, `keep_alive.py`
-- Panduan lengkap: `DEPLOY_KOYEB.md`
-
-## Recent Changes
-- 2025-12-13: **Koyeb Deployment Support** - Added 24/7 keep-alive for free tier:
-  - Created `keep_alive.py` - Self-ping service every 4 minutes
-  - Created `Dockerfile` - Docker-based deployment for Koyeb
-  - Created `Procfile` - Alternative deployment method
-  - Created `DEPLOY_KOYEB.md` - Complete deployment guide in Indonesian
-  - Updated `main.py` - Auto-detect Koyeb environment (PORT, KOYEB_PUBLIC_DOMAIN)
-  - Updated `web_server.py` - Integrated keep-alive service on startup/shutdown
-  - Added `/api/keep-alive/status` endpoint for monitoring
-- 2025-12-12: **Project Cleanup & Synchronization** - Major refactoring:
-  - Removed unused files: run.py, pair_scanner.py, trade_analyzer.py, auto_trade_test.py, test_all_strategies.py, test_connection.py, test_real_trade.py, test_strategy_trades.py
-  - Fixed web_server.py type safety issues (Optional types properly handled)
-  - Removed duplicate register/unregister_trading_manager functions
-  - Updated requirements.txt (removed unused websockets, numpy)
-  - Cleaned unused TradeHistoryAnalyzer references from trading.py
-- 2025-12-12: **CRITICAL FIX - Telegram Bot Conflict** - Fixed "Conflict: terminated by other getUpdates request" error:
-  - Added `drop_pending_updates=True` to `start_polling()` to clear stale updates
-  - Added `allowed_updates` filter for better performance
-  - Implemented graceful shutdown sequence (stop trading managers → disconnect WebSockets → stop application)
-- 2025-12-12: **CRITICAL FIX - WebSocket Heartbeat** - Fixed connection timeout issues:
-  - Server now properly updates `last_pong` timestamp when receiving pong from client
-  - All 7 WebApp HTML files now send pong response when receiving ping from server
-  - Complete bidirectional heartbeat: server ping → client pong → server update timestamp
-- 2025-12-12: **Trading Logging Optimization** - Reduced INFO logging to prevent log flooding:
-  - First tick logged at INFO level
-  - Heartbeat log every 5 minutes at INFO level
-  - All other ticks logged at DEBUG level
-  - Warmup progress logged at 50% and 100% completion only
-- 2025-12-10: **Authorization Retry Mechanism** - Fixed login timeout issues:
-  - `deriv_ws.py authorize()`: Added 3-attempt retry with exponential backoff (2s, 4s delays)
-  - Pre-authorization ping test to verify connection stability
-  - Token format validation (minimum 10 characters)
-  - All error messages now in Indonesian for better UX
-  - Timeout reduced from 30s to 20s per attempt for faster feedback
-  - `telegram_bot.py _connect_deriv()`: Connection retry loop with async sleep
-  - Added `_get_detailed_error_message()` helper for actionable error messages
-- 2025-12-10: **NEW WebApps** - Added multi-indicator.html and ldp.html with full JavaScript functionality
-- 2025-12-10: **Routes Added** - Added /multi-indicator and /ldp routes to web_server.py
-- 2025-12-10: **Terminal Strategy Fix** - RSI thresholds corrected to 35/65 (oversold/overbought), Stochastic to 30/70
-- 2025-12-10: **LDP Strategy Fix** - HOT_THRESHOLD corrected to 0.12, COLD_THRESHOLD to 0.08 (logical: hot > cold)
-- 2025-12-10: **CRITICAL FIX - Signal Generation** - Lowered all strategy thresholds to generate more signals:
-  - MultiIndicatorStrategy: MIN_CONFLUENCE 40→25, MIN_CONFIDENCE 0.55→0.40, COOLDOWN 12s→5s
-  - TerminalStrategy: MIN_CONFIDENCE 0.75→0.55, MIN_TICKS 30→20, COOLDOWN 3s→2s
-  - SniperStrategy: MIN_CONFIDENCE 0.78→0.60, MIN_CONFIRMATIONS 2→1, COOLDOWN 10s→5s
-  - TickPickerStrategy: MIN_CONFIDENCE 0.55→0.45, MIN_TICKS 30→20, COOLDOWN 3s→2s
-  - DigitPadStrategy: MIN_CONFIDENCE 0.55→0.45, MIN_TICKS 50→30, COOLDOWN 5s→3s
-  - LDPStrategy: MIN_TICKS 50→30, STREAK_THRESHOLD 4→3, COOLDOWN 5s→3s
-  - AccumulatorStrategy: MIN_CONFIDENCE 0.75→0.55, MIN_TICKS 30→20, cooldowns reduced
-  - TickAnalyzerStrategy: REVERSAL_STREAK 5→4, MIN_TICKS added 20, COOLDOWN 8s→4s
-- 2025-12-10: **EntryFilter Thresholds Lowered** - MIN_ENTRY_SCORE 55→40, all confidence thresholds reduced by ~15%
-- 2025-12-10: **Verbose Logging** - Added comprehensive tick-by-tick logging in trading.py _on_tick() with warmup progress, cooldown status, and strategy data points
-- 2025-12-10: **Entry Filter Logging** - Changed to info level with emoji indicators for better visibility
-- 2025-12-10: **FIX - Entry Price = 0 Bug** - Added fallback chain for entry_price: entry_spot → entry_tick_price → buy_price to ensure analytics always have valid entry price
-- 2025-12-10: **Enhanced Logging** - Added comprehensive emoji-based logging throughout trade flow (_on_tick, _process_signal, _execute_trade_worker) for easier debugging
-- 2025-12-10: **Error Handling** - Added try-except wrappers in signal processing to catch and log errors without crashing the bot
-- 2025-12-10: **MAJOR FIX - Fibonacci Recovery** - Replaced aggressive 2x Martingale with Fibonacci sequence (1,1,2,3,5,8,13,21) for stake recovery
-- 2025-12-10: **Trade History Analyzer** - Added pattern detection and auto-pause after 3+ consecutive losses
-- 2025-12-10: **Performance Monitor** - Real-time metrics tracking with /api/metrics endpoint
-- 2025-12-10: **User Preferences** - Persistent settings storage in config/users/
-- 2025-12-10: **Dynamic Session Limits** - Strategy-specific loss limits (AMT=30%, SNIPER=15%, DIGITPAD=25%)
-- 2025-12-10: **Entry Filtering** - Strategy-specific confidence thresholds (AMT=75%, SNIPER=80%)
-- 2025-12-10: **Max Stake Cap** - Reduced from 20% to 10% of balance for safer trading
-- 2025-12-10: **Strategy Configurations** - Added `strategy_config.py` with stake options and trade count options for all 8 strategies
-- 2025-12-10: **API Endpoint** - Added `/api/strategy/configs` and `/api/strategy/{name}/config` endpoints
-- 2025-12-10: **AMT Trade Count UI** - Added trade count selection (5, 10, 20, 50, 100, Unlimited) to AMT webapp
-- 2025-12-10: **Auto Trade Test** - Created `auto_trade_test.py` for testing real trades with token 074qAV4XaEqz8Jl
-- 2025-12-10: **All 8 Strategies Working** - Verified all strategies trade correctly via test_strategy_trades.py
-- 2025-12-10: **AMT Accumulator Fix** - Enforced $1.00 minimum stake requirement (Deriv API limitation)
-- 2025-12-10: **Removed limit_order** - Accumulator contracts no longer use limit_order field (was causing timeouts)
-- 2025-12-09: **AMT Accumulator Fix** - Changed growth rate to conservative 1-2% (was 3-5%) for wider barriers and less barrier hits
-- 2025-12-09: **AMT Accumulator Fix** - Changed take_profit from 200% to 50% of stake for faster/more consistent wins
-- 2025-12-09: **CRITICAL FIX** - WebSocket reconnect with auto re-authorization dan state recovery
-- 2025-12-09: Timeout proposal/buy dinaikkan dari 10s ke 20s untuk stabilitas
-- 2025-12-09: Ping interval dikurangi dari 60s ke 30s (sesuai Deriv best practices)
-- 2025-12-09: Menambahkan _on_connection_status callback di TradingManager untuk auto-resume setelah reconnect
-- 2025-12-09: Menambahkan re-subscribe tick otomatis setelah reconnect
-- 2025-12-09: Dibuat test_all_strategies.py untuk testing komprehensif semua strategi
-- 2025-12-09: **Critical Fix** - Trading timeout mitigation with retry mechanism and exponential backoff
-- 2025-12-09: Added connection health check (check_connection_health, get_connection_metrics) for debugging
-- 2025-12-09: Enhanced _send_and_wait with retry support (configurable retries, timeout tracking)
-- 2025-12-09: Added watchdog timer in TradingManager for stuck detection (20s check, 120s threshold)
-- 2025-12-09: Added /api/debug endpoint for real-time connection and trading state monitoring
-- 2025-12-09: Created test_real_trade.py script for verifying timeout fixes
-- 2025-12-09: **Critical Fix** - Session files now cleared BEFORE module imports to prevent stale data
-- 2025-12-09: Added `_early_cleanup()` in main.py that runs before any singleton imports
-- 2025-12-09: Added `reset_all()` methods to user_auth.py and chat_mapping.py for in-memory purge
-- 2025-12-09: Enhanced trading callbacks with proper async event loop capture for Telegram notifications
-- 2025-12-09: Added Indonesian language trade notifications (`_notify_trade_opened`, `_notify_trade_closed`)
-- 2025-12-09: Fixed WebApp auto-connect issue - now syncs Deriv token and account info to session_manager when login via Telegram bot
-- 2025-12-09: Added `clear_user_data()` helper to WebSessionManager for centralized cleanup on logout
-- 2025-12-09: Logout handlers now properly clear session_manager data to prevent stale sessions
-- 2024-12-09: Fixed security issues in sync endpoints - now require valid session token
-- 2024-12-09: Added sessionValidated flag for secure Telegram authentication
-- 2024-12-09: Cleaned web_server.py - removed duplicate routes, serve HTML from webapps/
-- 2024-12: Migrated from Next.js to full Python
-- Configured for Replit environment with port 5000
-
-## Session Management
-- Session files (`logs/user_auth.json`, `logs/chat_mapping.json`, etc.) are deleted on EVERY bot startup
-- This ensures fresh start with no stale sessions from previous runs
-- Files are also deleted on shutdown for security
-- Cleanup runs BEFORE module imports to prevent singleton pre-loading stale data
-
-## Key Risk Management Features
-1. **Fibonacci-Based Recovery** - Stake recovery using sequence: 1, 1, 2, 3, 5, 8, 13, 21 (max 8 levels)
-2. **Auto-Pause** - Trading pauses after 3+ consecutive losses
-3. **Loss Warnings** - Notifications at 50%, 75%, 90% of session loss limit
-4. **Dynamic Limits** - Strategy-specific session loss limits (10-30% of balance)
-5. **Entry Filtering** - Minimum confidence thresholds per strategy
-6. **Max Stake Cap** - Never exceeds 10% of balance per trade
-
-## Key Modules
-- `hybrid_money_manager.py` - Fibonacci-based stake recovery system
-- `performance_monitor.py` - Real-time performance metrics
-- `user_preferences.py` - Persistent user settings storage
-- `entry_filter.py` - Signal filtering with strategy-specific thresholds
-- `indicators.py` - Technical indicators (RSI, EMA, MACD, Stochastic, ADX, ATR, etc.)
-- `trading.py` - Main trading manager with session management
-- `telegram_bot.py` - Telegram bot interface
-- `web_server.py` - FastAPI server with WebSocket and API endpoints
+## External Dependencies
+- **Deriv API:** Core trading functionality, accessed via WebSocket.
+- **Telegram Bot API:** For bot interactions and WebApp integration.
+- **FastAPI:** Python web framework for the backend.
+- **Uvicorn:** ASGI server to run the FastAPI application.
+- **Koyeb:** (Optional) Deployment platform, with specific configurations for 24/7 free tier operation.
