@@ -53,8 +53,9 @@ class UserAuth:
         self._login_attempts: Dict[int, Dict] = {}  # user_id -> {count, lockout_until}
         self._lock = threading.RLock()
         
-        # Initialize encryption
+        # Initialize encryption with per-installation salt
         self._secret = self._get_or_create_secret()
+        self._salt = self._get_or_create_salt()
         self._fernet = self._create_fernet()
         
         # Load existing sessions
@@ -78,13 +79,38 @@ class UserAuth:
         
         return secret
     
+    def _get_or_create_salt(self) -> bytes:
+        """Get or create per-installation salt for key derivation"""
+        salt_file = "logs/.encryption_salt"
+        
+        if os.path.exists(salt_file):
+            try:
+                with open(salt_file, 'rb') as f:
+                    salt = f.read()
+                if len(salt) >= 16:
+                    return salt
+            except Exception as e:
+                logger.warning(f"Error reading salt file: {e}")
+        
+        # Generate new random 32-byte salt
+        salt = secrets.token_bytes(32)
+        try:
+            os.makedirs("logs", exist_ok=True)
+            with open(salt_file, 'wb') as f:
+                f.write(salt)
+            os.chmod(salt_file, 0o600)  # Restrict file permissions
+            logger.info("Generated new encryption salt")
+        except Exception as e:
+            logger.error(f"Error saving salt file: {e}")
+        
+        return salt
+    
     def _create_fernet(self) -> Fernet:
-        """Create Fernet cipher with derived key"""
-        salt = b"deriv_bot_salt_v1"
+        """Create Fernet cipher with derived key using per-installation salt"""
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
-            salt=salt,
+            salt=self._salt,
             iterations=self.KDF_ITERATIONS
         )
         key = base64.urlsafe_b64encode(kdf.derive(self._secret.encode()))

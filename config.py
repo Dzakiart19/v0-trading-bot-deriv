@@ -5,6 +5,7 @@ Configuration - Central configuration management
 import os
 import json
 import logging
+import secrets
 from dataclasses import dataclass, field, asdict
 from typing import Dict, Any, Optional, List
 from enum import Enum
@@ -34,9 +35,9 @@ class BotConfig:
     # Web Server
     web_host: str = "0.0.0.0"
     web_port: int = 5000
-    flask_secret: str = "deriv-trading-bot-secret"
-    admin_username: str = "admin"
-    admin_password: str = "admin123"
+    flask_secret: str = ""  # Must be set via FLASK_SECRET_KEY env var
+    admin_username: str = ""  # Must be set via ADMIN_USERNAME env var
+    admin_password: str = ""  # Must be set via ADMIN_PASSWORD env var
     
     # Trading Defaults
     default_stake: float = 1.0
@@ -72,9 +73,9 @@ class BotConfig:
             deriv_endpoint=os.environ.get("DERIV_ENDPOINT", "wss://ws.binaryws.com/websockets/v3"),
             web_host=os.environ.get("WEB_HOST", "0.0.0.0"),
             web_port=int(os.environ.get("WEB_PORT", "5000")),
-            flask_secret=os.environ.get("FLASK_SECRET_KEY", "deriv-trading-bot-secret"),
-            admin_username=os.environ.get("ADMIN_USERNAME", "admin"),
-            admin_password=os.environ.get("ADMIN_PASSWORD", "admin123"),
+            flask_secret=os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32),
+            admin_username=os.environ.get("ADMIN_USERNAME") or "",  # Disabled if not set
+            admin_password=os.environ.get("ADMIN_PASSWORD") or "",  # Disabled if not set
             default_stake=float(os.environ.get("DEFAULT_STAKE", "1.0")),
             default_target_trades=int(os.environ.get("DEFAULT_TARGET_TRADES", "50")),
             default_risk_level=os.environ.get("DEFAULT_RISK_LEVEL", "MEDIUM"),
