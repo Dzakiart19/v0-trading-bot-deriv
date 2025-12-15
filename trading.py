@@ -511,11 +511,19 @@ class TradingManager:
     
     def get_status(self) -> Dict[str, Any]:
         """Get current trading status"""
+        # CRITICAL FIX: Display "∞" for unlimited mode instead of falling back to 50
+        if self._unlimited_mode:
+            target_display = "∞"
+        elif self._target_trade_count > 0:
+            target_display = self._target_trade_count
+        else:
+            target_display = self.config.target_trades if self.config else 50
+        
         return {
             "state": self.state.value,
             "trades": self.session_trades,
             "session_trades": self.session_trades,
-            "target_trades": self._target_trade_count if self._target_trade_count > 0 else (self.config.target_trades if self.config else 50),
+            "target_trades": target_display,
             "unlimited_mode": self._unlimited_mode,
             "wins": self.session_wins,
             "losses": self.session_losses,
