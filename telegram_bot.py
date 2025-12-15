@@ -1851,6 +1851,12 @@ Klik tombol di bawah untuk mulai trading:
         tm.on_error = on_error
         tm.on_progress = on_progress
         
+        # Apply trade count setting from user context BEFORE starting
+        trade_count = self._user_context.get(f"trade_count_{user.id}", 10)
+        is_unlimited = trade_count == 0
+        tm.set_trade_count(trade_count, unlimited=is_unlimited)
+        logger.info(f"Trade count set for user {user.id}: {'UNLIMITED' if is_unlimited else trade_count}")
+        
         # Start trading
         started = tm.start()
         
@@ -1913,8 +1919,10 @@ Klik tombol di bawah untuk mulai trading:
                 
                 last_trade_count = current_trades
             
-            # Check if completed
-            if current_trades >= status['target_trades']:
+            # Check if completed (skip if unlimited mode)
+            is_unlimited = status.get('unlimited_mode', False)
+            target = status.get('target_trades', 50)
+            if not is_unlimited and target > 0 and current_trades >= target:
                 await self.application.bot.send_message(
                     chat_id,
                     f"🏁 <b>Target Tercapai!</b>\n\n"
