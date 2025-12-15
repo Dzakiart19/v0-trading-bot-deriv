@@ -138,10 +138,11 @@ class TelegramBot:
         
         # CRITICAL: drop_pending_updates prevents "Conflict: terminated by other getUpdates request" error
         # This happens when multiple bot instances or stale webhook requests exist
-        await self.application.updater.start_polling(
-            drop_pending_updates=True,  # Clear old updates to prevent conflicts
-            allowed_updates=["message", "callback_query", "inline_query"]  # Only listen to what we need
-        )
+        if self.application.updater is not None:
+            await self.application.updater.start_polling(
+                drop_pending_updates=True,  # Clear old updates to prevent conflicts
+                allowed_updates=["message", "callback_query", "inline_query"]  # Only listen to what we need
+            )
         
         logger.info("Telegram bot started with drop_pending_updates=True")
     
@@ -1078,8 +1079,8 @@ Pilih jumlah trade:"""
         count_display = "∞ Unlimited" if count == 0 else str(count)
         await query.answer(f"✅ Target trade: {count_display}", show_alert=False)
         
-        # Go back to trading setup
-        await self._show_trading_setup(Update(update_id=0, callback_query=query), None)
+        # Go back to trade count selection to show updated choice
+        await self._show_trade_count_selection(query, user)
     
     async def _handle_stake_callback(self, query: CallbackQuery, user: User, data: str) -> None:
         """Handle stake selection"""
@@ -1167,13 +1168,55 @@ Klik tombol di bawah untuk mulai trading:
         menu = data.replace("menu_", "")
         
         if menu == "main":
-            # Create a fake update object for _show_main_menu
-            class FakeUpdate:
-                callback_query = query
-                effective_user = user
-                message = None
+            # Edit message directly instead of using FakeUpdate
+            ws = self._ws_connections.get(user.id)
+            balance = ws.get_balance() if ws and ws.is_connected() else 0
+            currency = ws.get_currency() if ws and ws.is_connected() else "USD"
+            account_type = user_auth.get_account_type(user.id) or "demo"
             
-            await self._show_main_menu(FakeUpdate(), context)
+            selected_strategy = self._user_strategies.get(user.id, "TERMINAL")
+            strategy_info = STRATEGIES.get(selected_strategy, {})
+            
+            escaped_currency = html.escape(currency)
+            escaped_strategy_name = html.escape(strategy_info.get('name', selected_strategy))
+            
+            text = f"""
+🏠 <b>Menu Utama</b>
+
+👤 Account: {account_type.upper()}
+💰 Balance: {balance:.2f} {escaped_currency}
+📊 Strategy: {strategy_info.get('icon', '')} {escaped_strategy_name}
+
+Pilih menu:
+"""
+            
+            webapp_url = self._get_webapp_url(user.id, selected_strategy)
+            
+            keyboard = [
+                [InlineKeyboardButton(
+                    f"🌐 Buka {strategy_info.get('name', 'WebApp')}",
+                    web_app=WebAppInfo(url=webapp_url)
+                )],
+                [
+                    InlineKeyboardButton("📊 Pilih Strategi", callback_data="menu_strategy"),
+                    InlineKeyboardButton("💱 Pilih Pair", callback_data="menu_pair")
+                ],
+                [
+                    InlineKeyboardButton("▶️ Auto Trade", callback_data="menu_autotrade"),
+                    InlineKeyboardButton("📈 Status", callback_data="menu_status")
+                ],
+                [
+                    InlineKeyboardButton("👤 Akun", callback_data="menu_account"),
+                    InlineKeyboardButton("🌍 Bahasa", callback_data="menu_language")
+                ],
+                [InlineKeyboardButton("🚪 Logout", callback_data="confirm_logout")]
+            ]
+            
+            await query.edit_message_text(
+                text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         
         elif menu == "strategy":
             selected = self._user_strategies.get(user.id, "TERMINAL")
@@ -1222,12 +1265,58 @@ Klik tombol di bawah untuk mulai trading:
             )
         
         elif menu == "autotrade":
-            class FakeUpdate:
-                callback_query = query
-                effective_user = user
-                message = None
+            # Show trading setup inline instead of using FakeUpdate
+            if user.id in self._trading_managers:
+                tm = self._trading_managers[user.id]
+                if tm.state == TradingState.RUNNING:
+                    keyboard = [
+                        [InlineKeyboardButton("⏹️ Stop Trading", callback_data="confirm_stop_trading")],
+                        [InlineKeyboardButton("🔄 Force Restart", callback_data="force_restart_trading")],
+                        [InlineKeyboardButton("🔙 Menu", callback_data="menu_main")]
+                    ]
+                    await query.edit_message_text(
+                        "⚠️ <b>Trading sedang berjalan</b>\n\n"
+                        "Pilih aksi:\n"
+                        "• <b>Stop Trading</b> - Hentikan trading saat ini\n"
+                        "• <b>Force Restart</b> - Stop paksa dan mulai ulang",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    return
             
-            await self._show_trading_setup(FakeUpdate(), context)
+            # Show trading setup
+            selected_strategy = self._user_strategies.get(user.id, "TERMINAL")
+            selected_symbol = self._user_context.get(f"selected_symbol_{user.id}", "R_100")
+            trade_count = self._user_context.get(f"trade_count_{user.id}", 10)
+            trade_count_display = "∞ Unlimited" if trade_count == 0 else str(trade_count)
+            
+            strategy_info = STRATEGIES.get(selected_strategy, {})
+            escaped_name = html.escape(strategy_info.get('name', selected_strategy))
+            escaped_symbol = html.escape(selected_symbol)
+            
+            text = f"""
+▶️ <b>Auto Trade Setup</b>
+
+📊 Strategi: {strategy_info.get('icon', '')} <b>{escaped_name}</b>
+💱 Symbol: {escaped_symbol}
+🎯 Target Trade: {trade_count_display}
+
+Konfigurasi trading otomatis:
+"""
+            
+            keyboard = [
+                [InlineKeyboardButton("💵 Pilih Stake", callback_data=f"change_stake_{selected_strategy}")],
+                [InlineKeyboardButton("🎯 Target Trade", callback_data="menu_trade_count")],
+                [InlineKeyboardButton("📊 Ubah Strategi", callback_data="menu_strategy")],
+                [InlineKeyboardButton("💱 Ubah Symbol", callback_data="menu_pair")],
+                [InlineKeyboardButton("🔙 Menu Utama", callback_data="menu_main")]
+            ]
+            
+            await query.edit_message_text(
+                text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         
         elif menu == "trade_count":
             await self._show_trade_count_selection(query, user)
@@ -1270,7 +1359,7 @@ Klik tombol di bawah untuk mulai trading:
                 )
                 return
             
-            account_type = user_auth.get_account_type(user.id)
+            account_type = user_auth.get_account_type(user.id) or "unknown"
             balance = ws.get_balance()
             currency = ws.get_currency()
             
@@ -1835,14 +1924,15 @@ Klik tombol di bawah untuk mulai trading:
                 message = progress_info.get("message", "Loading...")
                 
                 if msg_type in ["warmup", "warmup_complete"]:
-                    asyncio.run_coroutine_threadsafe(
-                        self.application.bot.send_message(
-                            chat_id,
-                            message
-                        ),
-                        loop
-                    )
-                    logger.info(f"Progress notification sent to user {user.id}: {message}")
+                    if self.application.bot is not None:
+                        asyncio.run_coroutine_threadsafe(
+                            self.application.bot.send_message(
+                                chat_id,
+                                message
+                            ),
+                            loop
+                        )
+                        logger.info(f"Progress notification sent to user {user.id}: {message}")
             except Exception as e:
                 logger.error(f"Failed to send progress notification: {e}")
         
@@ -1923,14 +2013,15 @@ Klik tombol di bawah untuk mulai trading:
             is_unlimited = status.get('unlimited_mode', False)
             target = status.get('target_trades', 50)
             if not is_unlimited and target > 0 and current_trades >= target:
-                await self.application.bot.send_message(
-                    chat_id,
-                    f"🏁 <b>Target Tercapai!</b>\n\n"
-                    f"Total Trades: {current_trades}\n"
-                    f"Profit: ${status['session_profit']:.2f}\n"
-                    f"Win Rate: {status['win_rate']:.1f}%",
-                    parse_mode=ParseMode.HTML
-                )
+                if self.application.bot is not None:
+                    await self.application.bot.send_message(
+                        chat_id,
+                        f"🏁 <b>Target Tercapai!</b>\n\n"
+                        f"Total Trades: {current_trades}\n"
+                        f"Profit: ${status['session_profit']:.2f}\n"
+                        f"Win Rate: {status['win_rate']:.1f}%",
+                        parse_mode=ParseMode.HTML
+                    )
                 tm.stop()
                 break
     
@@ -1945,7 +2036,8 @@ Klik tombol di bawah untuk mulai trading:
         self._last_message_time[chat_id] = now
         
         try:
-            await self.application.bot.send_message(chat_id, text, parse_mode=parse_mode)
+            if self.application.bot is not None:
+                await self.application.bot.send_message(chat_id, text, parse_mode=parse_mode)
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
     
@@ -1998,9 +2090,10 @@ Klik tombol di bawah untuk mulai trading:
                 f"• Next Stake: ${next_stake:.2f}"
             )
             
-            await self.application.bot.send_message(
-                chat_id, text, parse_mode=ParseMode.HTML
-            )
+            if self.application.bot is not None:
+                await self.application.bot.send_message(
+                    chat_id, text, parse_mode=ParseMode.HTML
+                )
         except Exception as e:
             logger.error(f"Failed to notify trade closed: {e}")
     
@@ -2008,11 +2101,12 @@ Klik tombol di bawah untuk mulai trading:
         """Notify user of trading error"""
         try:
             escaped_msg = html.escape(error_msg)
-            await self.application.bot.send_message(
-                chat_id,
-                f"⚠️ <b>Trading Error:</b>\n\n<pre>{escaped_msg}</pre>",
-                parse_mode=ParseMode.HTML
-            )
+            if self.application.bot is not None:
+                await self.application.bot.send_message(
+                    chat_id,
+                    f"⚠️ <b>Trading Error:</b>\n\n<pre>{escaped_msg}</pre>",
+                    parse_mode=ParseMode.HTML
+                )
         except Exception as e:
             logger.error(f"Failed to notify trading error: {e}")
     
@@ -2045,6 +2139,6 @@ Klik tombol di bawah untuk mulai trading:
 
 
 # Create bot instance function
-def create_bot(token: str, webapp_base_url: str = None) -> TelegramBot:
+def create_bot(token: str, webapp_base_url: Optional[str] = None) -> TelegramBot:
     """Create and return a TelegramBot instance"""
     return TelegramBot(token, webapp_base_url)

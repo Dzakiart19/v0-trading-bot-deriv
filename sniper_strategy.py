@@ -210,11 +210,11 @@ class SniperStrategy:
     
     def _get_dynamic_thresholds(self) -> Dict[str, float]:
         """Get current volatility-adjusted thresholds"""
-        default_thresholds = {
-            "rsi_extreme_low": 20,
-            "rsi_extreme_high": 80,
-            "stoch_extreme_low": 20,
-            "stoch_extreme_high": 80
+        default_thresholds: Dict[str, float] = {
+            "rsi_extreme_low": 20.0,
+            "rsi_extreme_high": 80.0,
+            "stoch_extreme_low": 20.0,
+            "stoch_extreme_high": 80.0
         }
         
         if len(self.prices) < 50:
@@ -225,10 +225,10 @@ class SniperStrategy:
         if self.use_dynamic_thresholds:
             self.current_thresholds = self.dynamic_thresholds.adjust_thresholds(vol_percentile)
             return {
-                "rsi_extreme_low": max(15, self.current_thresholds["rsi_oversold_low"]),
-                "rsi_extreme_high": min(85, self.current_thresholds["rsi_overbought_high"]),
-                "stoch_extreme_low": max(15, self.current_thresholds["stoch_oversold"]),
-                "stoch_extreme_high": min(85, self.current_thresholds["stoch_overbought"])
+                "rsi_extreme_low": float(max(15, self.current_thresholds["rsi_oversold_low"])),
+                "rsi_extreme_high": float(min(85, self.current_thresholds["rsi_overbought_high"])),
+                "stoch_extreme_low": float(max(15, self.current_thresholds["stoch_oversold"])),
+                "stoch_extreme_high": float(min(85, self.current_thresholds["stoch_overbought"]))
             }
         return default_thresholds
     
@@ -324,7 +324,7 @@ class SniperStrategy:
         ema_21 = self.indicators.calculate_ema(self.prices, 21)
         ema_50 = self.indicators.calculate_ema(self.prices, 50)
         
-        if not all([ema_9, ema_21, ema_50]):
+        if ema_9 is None or ema_21 is None or ema_50 is None:
             return None
         
         confirmations = 0
@@ -336,7 +336,7 @@ class SniperStrategy:
         prev_ema_9 = self.indicators.calculate_ema(prev_prices, 9)
         prev_ema_21 = self.indicators.calculate_ema(prev_prices, 21)
         
-        if prev_ema_9 and prev_ema_21:
+        if prev_ema_9 is not None and prev_ema_21 is not None:
             # Bullish crossover
             if prev_ema_9 <= prev_ema_21 and ema_9 > ema_21:
                 direction = "BUY"
@@ -362,7 +362,7 @@ class SniperStrategy:
         
         # ADX trend strength
         adx = self.indicators.calculate_adx(self.prices, 14)
-        if adx and adx > 25:
+        if adx is not None and adx > 25:
             confirmations += 1
             confidence += 0.10
         
@@ -492,11 +492,11 @@ class SniperStrategy:
         ema_21 = self.indicators.calculate_ema(self.prices, 21)
         ema_50 = self.indicators.calculate_ema(self.prices, 50)
         
-        if not all([ema_9, ema_21, ema_50]):
+        if ema_9 is None or ema_21 is None or ema_50 is None:
             return None
         
         adx = self.indicators.calculate_adx(self.prices, 14)
-        if not adx or adx < 25:
+        if adx is None or adx < 25:
             return None  # Need strong trend
         
         confirmations = 0
@@ -522,7 +522,7 @@ class SniperStrategy:
         
         # RSI not extreme (healthy trend)
         rsi = self.indicators.calculate_rsi(self.prices, 14)
-        if rsi:
+        if rsi is not None:
             if direction == "BUY" and 40 < rsi < 70:
                 confirmations += 1
                 confidence += 0.05
@@ -544,7 +544,7 @@ class SniperStrategy:
         rsi = self.indicators.calculate_rsi(self.prices, 14)
         stoch = self.indicators.calculate_stochastic(self.prices, 14)
         
-        if not all([rsi, stoch]):
+        if rsi is None or stoch is None:
             return None
         
         thresholds = self._get_dynamic_thresholds()
