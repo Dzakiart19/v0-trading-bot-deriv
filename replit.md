@@ -36,9 +36,72 @@ The system is built around a FastAPI backend (`web_server.py`) serving both API 
 - **WebSocket Communication:** Utilized for real-time data exchange with Deriv and between the WebApp and backend.
 - **Modular Design:** Encourages maintainability and scalability by separating concerns into distinct Python modules.
 
+## Enhanced Professional Modules (December 2025)
+
+### 1. Backtesting Engine (`backtesting.py`)
+- Historical data testing with walk-forward optimization
+- Monte Carlo simulation for robustness testing
+- Comprehensive metrics: Sharpe ratio, Sortino ratio, profit factor, drawdown
+- Strategy optimizer with grid search
+- Classes: `BacktestEngine`, `HistoricalDataLoader`, `StrategyOptimizer`, `BacktestResult`
+
+### 2. Notification Manager (`notification_manager.py`)
+- Real-time trade notifications with rate limiting
+- Daily and weekly summary reports
+- Profit milestone alerts and drawdown warnings
+- Win/loss streak notifications
+- Class: `NotificationManager` (singleton: `notification_manager`)
+
+### 3. Portfolio Manager (`portfolio_manager.py`)
+- Real-time equity curve tracking
+- Position management and trade recording
+- Risk metrics: Sharpe, Sortino, Calmar, VaR
+- Symbol and strategy performance breakdown
+- Classes: `PortfolioManager`, `PortfolioManagerFactory`
+
+### 4. Circuit Breaker (`circuit_breaker.py`)
+- Circuit breaker pattern (OPEN, CLOSED, HALF_OPEN states)
+- Token bucket rate limiter
+- Retry with exponential backoff and jitter
+- API client wrapper for robust communication
+- Classes: `CircuitBreaker`, `RateLimiter`, `RetryWithBackoff`, `APIClient`
+
+### 5. Signal Aggregator (`signal_aggregator.py`)
+- Weighted voting aggregation
+- Consensus and unanimous methods
+- Best performer selection
+- Meta-learning with adaptive weights based on performance
+- Class: `SignalAggregator` (singleton: `signal_aggregator`)
+
+### 6. Session Awareness (`session_awareness.py`)
+- Market session detection: Asian, European, American, Pacific
+- Session quality scoring and overlap detection
+- Strategy recommendations per session
+- Class: `TradingSessionManager` (singleton: `session_manager`)
+
+### 7. Enhanced Logging (`enhanced_logging.py`)
+- Structured JSON logging with log rotation
+- In-memory buffer for real-time log viewing
+- Throttled handler for repeated messages
+- Colored console output
+- Functions: `setup_logging()`, `get_recent_logs()`, `get_error_logs()`
+
+### 8. User Authentication (`user_auth.py`)
+- Per-user encrypted token storage (Fernet/AES-128-CBC)
+- PBKDF2 key derivation (100,000 iterations)
+- Rate limiting for login attempts
+- Token rotation support (24-hour interval)
+- Session timeout management (7-day inactivity)
+- Session statistics and cleanup
+- Class: `UserAuth` (singleton: `user_auth`)
+
 ## External Dependencies
 - **Deriv API:** Core trading functionality, accessed via WebSocket.
 - **Telegram Bot API:** For bot interactions and WebApp integration.
 - **FastAPI:** Python web framework for the backend.
 - **Uvicorn:** ASGI server to run the FastAPI application.
 - **Koyeb:** (Optional) Deployment platform, with specific configurations for 24/7 free tier operation.
+- **cryptography:** For secure token encryption.
+
+## Recent Changes
+- **December 15, 2025:** Added 8 professional enhancement modules for backtesting, notifications, portfolio management, circuit breaker, signal aggregation, session awareness, enhanced logging, and security hardening.
