@@ -65,6 +65,7 @@ class TradingConfig:
     max_trades: int = 100
     payout_percent: float = 85.0
     auto_trade: bool = True  # Always auto trade by default
+    unlimited_trades: bool = False  # For demo testing - no trade limit
 
 
 class TradingManager:
@@ -153,11 +154,16 @@ class TradingManager:
         self._max_consecutive_timeouts = 5  # Increased from 3 to allow more retries
         self._last_trade_attempt = 0
         self._last_activity_time = 0
-        self._watchdog_interval = 20  # Check every 20 seconds (was 60)
-        self._stuck_threshold = 120  # Restart after 2 minutes stuck (was 5 minutes)
+        self._watchdog_interval = 15  # Check every 15 seconds for faster detection
+        self._stuck_threshold = 60  # Restart after 1 minute stuck (was 2 minutes)
+        self._pending_trade_timeout = 45  # Clear pending_result after 45 seconds
         self._trading_paused_due_to_timeout = False
         self._recovery_attempts = 0
         self._max_recovery_attempts = 3
+        
+        # Trade count control (0 = unlimited for demo testing)
+        self._target_trade_count = 0  # 0 means unlimited
+        self._unlimited_mode = False
         
         # If config provided, configure immediately
         if config:
@@ -326,9 +332,25 @@ class TradingManager:
                     current_time = time.time()
                     inactive_time = current_time - self._last_activity_time
                     
+                    # Check for stuck pending trade first
+                    if self.pending_result and self._last_trade_attempt > 0:
+                        pending_time = current_time - self._last_trade_attempt
+                        if pending_time > self._pending_trade_timeout:
+                            logger.warning(f"Watchdog: Pending trade stuck for {pending_time:.0f}s, clearing...")
+                            self.pending_result = False
+                            self.active_trade = None
+                            self._last_activity_time = current_time
+                            
+                            if self.on_progress:
+                                self.on_progress({
+                                    "type": "pending_cleared",
+                                    "message": f"⚠️ Trade pending dibersihkan setelah {int(pending_time)}s, melanjutkan..."
+                                })
+                            continue
+                    
                     # Progressive recovery based on inactive time
-                    if inactive_time > 60 and inactive_time <= self._stuck_threshold:
-                        # After 1 minute: check connection health
+                    if inactive_time > 30 and inactive_time <= self._stuck_threshold:
+                        # After 30 seconds: check connection health
                         logger.info(f"Watchdog: Checking connection health after {inactive_time:.0f}s inactivity")
                         if self._check_and_resume_trading():
                             logger.info("Watchdog: Connection healthy, continuing...")
@@ -358,7 +380,7 @@ class TradingManager:
         
         self._watchdog_thread = threading.Thread(target=watchdog_loop, daemon=True)
         self._watchdog_thread.start()
-        logger.info("Watchdog timer started (interval: 20s, threshold: 120s)")
+        logger.info("Watchdog timer started (interval: 15s, threshold: 60s)")
     
     def _restart_trading_session(self):
         """Restart trading session after stuck detection with connection recovery"""
@@ -468,13 +490,33 @@ class TradingManager:
             return 0.0
         return (self.session_wins / self.session_trades) * 100
     
+    def set_trade_count(self, count: int, unlimited: bool = False):
+        """Set target trade count. Use 0 or unlimited=True for unlimited trading (demo testing)"""
+        self._target_trade_count = count
+        self._unlimited_mode = unlimited or count == 0
+        if self.config:
+            self.config.unlimited_trades = self._unlimited_mode
+            if not self._unlimited_mode:
+                self.config.max_trades = count
+        logger.info(f"Trade count set to: {'UNLIMITED' if self._unlimited_mode else count}")
+    
+    def get_trade_count_status(self) -> Dict[str, Any]:
+        """Get trade count status"""
+        return {
+            "current_trades": self.session_trades,
+            "target_trades": self._target_trade_count,
+            "unlimited_mode": self._unlimited_mode,
+            "remaining": "∞" if self._unlimited_mode else max(0, self._target_trade_count - self.session_trades)
+        }
+    
     def get_status(self) -> Dict[str, Any]:
         """Get current trading status"""
         return {
             "state": self.state.value,
             "trades": self.session_trades,
             "session_trades": self.session_trades,
-            "target_trades": self.config.target_trades if self.config else 50,
+            "target_trades": self._target_trade_count if self._target_trade_count > 0 else (self.config.target_trades if self.config else 50),
+            "unlimited_mode": self._unlimited_mode,
             "wins": self.session_wins,
             "losses": self.session_losses,
             "win_rate": self._get_win_rate(),
@@ -634,11 +676,16 @@ class TradingManager:
                 logger.error("❌ No config available for signal processing")
                 return
             
-            # Check session limits
-            if self.config.max_trades and self.session_trades >= self.config.max_trades:
-                logger.info("Max trades reached")
-                self.stop()
-                return
+            # Check session limits (skip if unlimited mode is enabled)
+            if not self._unlimited_mode and not self.config.unlimited_trades:
+                if self.config.max_trades and self.session_trades >= self.config.max_trades:
+                    logger.info(f"Max trades reached: {self.session_trades}/{self.config.max_trades}")
+                    self.stop()
+                    return
+                if self._target_trade_count > 0 and self.session_trades >= self._target_trade_count:
+                    logger.info(f"Target trades reached: {self.session_trades}/{self._target_trade_count}")
+                    self.stop()
+                    return
             
             # Check take profit
             if self.config.take_profit and self.session_profit >= self.config.take_profit:

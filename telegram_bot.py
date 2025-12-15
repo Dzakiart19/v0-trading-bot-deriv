@@ -597,6 +597,10 @@ Klik tombol di bawah untuk membuka WebApp:
         default_stake = strategy_config.default_stake if strategy_config else 1.00
         selected_stake = self._user_context.get(f"selected_stake_{user.id}", default_stake)
         
+        # Get trade count setting
+        trade_count = self._user_context.get(f"trade_count_{user.id}", 10)
+        trade_count_display = "∞ Unlimited" if trade_count == 0 else str(trade_count)
+        
         strategy_info = STRATEGIES.get(selected_strategy, {})
         
         strategy_name = html.escape(strategy_info.get('name', selected_strategy))
@@ -607,7 +611,7 @@ Klik tombol di bawah untuk membuka WebApp:
 📊 Strategi: {strategy_icon} {strategy_name}
 💱 Pair: {html.escape(selected_symbol)}
 💵 Stake: <b>${selected_stake:.2f}</b>
-🎯 Target: 10 trades
+🎯 Target: <b>{trade_count_display} trades</b>
 
 Klik tombol di bawah untuk memulai:"""
         
@@ -615,6 +619,7 @@ Klik tombol di bawah untuk memulai:"""
             [InlineKeyboardButton("📊 Ubah Strategi", callback_data="menu_strategy")],
             [InlineKeyboardButton("💱 Ubah Pair", callback_data="menu_pair")],
             [InlineKeyboardButton("💵 Ubah Stake", callback_data=f"change_stake_{selected_strategy}")],
+            [InlineKeyboardButton("🎯 Ubah Jumlah Trade", callback_data="menu_trade_count")],
             [InlineKeyboardButton("▶️ MULAI TRADING", callback_data="confirm_start_trading")],
             [InlineKeyboardButton("🔙 Kembali", callback_data="menu_main")]
         ]
@@ -902,6 +907,8 @@ Gunakan /strategi untuk trading lagi."""
             await self._handle_symbol_callback(query, user, data)
         elif data.startswith("lang_"):
             await self._handle_language_callback(query, user, data)
+        elif data.startswith("set_trade_count_"):
+            await self._handle_trade_count_callback(query, user, data)
         elif data.startswith("menu_"):
             await self._handle_menu_callback(query, user, data, context)
         elif data.startswith("confirm_"):
@@ -1014,6 +1021,65 @@ Pilih jumlah stake per trade:
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+    
+    async def _show_trade_count_selection(self, query: CallbackQuery, user: User) -> None:
+        """Show trade count selection menu with unlimited option for demo testing"""
+        current_count = self._user_context.get(f"trade_count_{user.id}", 10)
+        
+        text = """🎯 <b>Pilih Jumlah Trade</b>
+
+Berapa banyak trade yang ingin dijalankan secara otomatis?
+
+💡 <b>Unlimited</b> cocok untuk testing bot di akun demo!
+
+Pilih jumlah trade:"""
+        
+        trade_count_options = [5, 10, 25, 50, 100, 0]  # 0 = unlimited
+        
+        keyboard = []
+        row = []
+        for count in trade_count_options:
+            label = "∞ Unlimited" if count == 0 else str(count)
+            mark = "✅ " if count == current_count else ""
+            btn = InlineKeyboardButton(
+                f"{mark}{label}",
+                callback_data=f"set_trade_count_{count}"
+            )
+            row.append(btn)
+            if len(row) == 3:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+        
+        keyboard.append([InlineKeyboardButton("🔙 Kembali", callback_data="menu_autotrade")])
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    async def _handle_trade_count_callback(self, query: CallbackQuery, user: User, data: str) -> None:
+        """Handle trade count selection"""
+        try:
+            count = int(data.replace("set_trade_count_", ""))
+        except ValueError:
+            await query.answer("Nilai tidak valid", show_alert=True)
+            return
+        
+        self._user_context[f"trade_count_{user.id}"] = count
+        
+        # Also update trading manager if running
+        if user.id in self._trading_managers:
+            tm = self._trading_managers[user.id]
+            tm.set_trade_count(count, unlimited=(count == 0))
+        
+        count_display = "∞ Unlimited" if count == 0 else str(count)
+        await query.answer(f"✅ Target trade: {count_display}", show_alert=False)
+        
+        # Go back to trading setup
+        await self._show_trading_setup(Update(update_id=0, callback_query=query), None)
     
     async def _handle_stake_callback(self, query: CallbackQuery, user: User, data: str) -> None:
         """Handle stake selection"""
@@ -1162,6 +1228,9 @@ Klik tombol di bawah untuk mulai trading:
                 message = None
             
             await self._show_trading_setup(FakeUpdate(), context)
+        
+        elif menu == "trade_count":
+            await self._show_trade_count_selection(query, user)
         
         elif menu == "status":
             if user.id not in self._trading_managers:
