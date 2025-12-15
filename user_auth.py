@@ -39,6 +39,8 @@ class UserAuth:
     - PBKDF2 key derivation
     - Rate limiting for login attempts
     - Session persistence
+    - Token rotation support
+    - Session timeout management
     """
     
     AUTH_FILE = "logs/user_auth.json"
@@ -46,6 +48,8 @@ class UserAuth:
     LOCKOUT_DURATION = 300  # 5 minutes
     PENDING_TIMEOUT = 300  # 5 minutes
     KDF_ITERATIONS = 100000
+    SESSION_TIMEOUT = 86400 * 7  # 7 days inactivity timeout
+    TOKEN_ROTATION_INTERVAL = 86400  # 24 hours suggested rotation
     
     def __init__(self):
         self._sessions: Dict[int, UserSession] = {}
@@ -394,6 +398,130 @@ class UserAuth:
             self._pending_logins.clear()
             self._login_attempts.clear()
             logger.info("All user sessions cleared from memory")
+    
+    def check_session_timeout(self, user_id: int) -> bool:
+        """
+        Check if user session has timed out due to inactivity
+        
+        Returns:
+            True if session is valid, False if timed out or expired
+        """
+        with self._lock:
+            session = self._sessions.get(user_id)
+            if not session:
+                return False
+            
+            time_since_activity = time.time() - session.last_activity
+            if time_since_activity > self.SESSION_TIMEOUT:
+                logger.info(f"Session timed out for user {user_id} after {time_since_activity/3600:.1f} hours inactivity")
+                del self._sessions[user_id]
+                self._save_sessions()
+                return False
+            
+            return True
+    
+    def should_rotate_token(self, user_id: int) -> bool:
+        """
+        Check if token should be rotated based on age
+        
+        Returns:
+            True if token should be rotated for security
+        """
+        session = self._sessions.get(user_id)
+        if not session:
+            return False
+        
+        token_age = time.time() - session.login_time
+        return token_age > self.TOKEN_ROTATION_INTERVAL
+    
+    def rotate_token(self, user_id: int, new_token: str) -> Dict[str, Any]:
+        """
+        Rotate user's API token with a new one
+        
+        Args:
+            user_id: Telegram user ID
+            new_token: New Deriv API token
+            
+        Returns:
+            Status dict with success/error
+        """
+        with self._lock:
+            session = self._sessions.get(user_id)
+            if not session:
+                return {"success": False, "error": "no_session"}
+            
+            if not self._validate_token_format(new_token):
+                return {"success": False, "error": "invalid_token_format"}
+            
+            # Encrypt new token
+            encrypted = self._encrypt_token(new_token)
+            fingerprint = self._create_fingerprint(new_token)
+            
+            # Update session
+            session.token_encrypted = encrypted
+            session.token_fingerprint = fingerprint
+            session.login_time = time.time()  # Reset token age
+            session.last_activity = time.time()
+            
+            self._save_sessions()
+            
+            logger.info(f"Token rotated for user {user_id}")
+            
+            return {
+                "success": True,
+                "fingerprint": fingerprint[:8]
+            }
+    
+    def update_activity(self, user_id: int):
+        """Update last activity timestamp for session"""
+        with self._lock:
+            session = self._sessions.get(user_id)
+            if session:
+                session.last_activity = time.time()
+    
+    def get_session_stats(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get session statistics for user"""
+        session = self._sessions.get(user_id)
+        if not session:
+            return None
+        
+        now = time.time()
+        return {
+            "user_id": user_id,
+            "account_type": session.account_type,
+            "language": session.language,
+            "login_time": session.login_time,
+            "last_activity": session.last_activity,
+            "session_age_hours": (now - session.login_time) / 3600,
+            "inactive_hours": (now - session.last_activity) / 3600,
+            "token_fingerprint": session.token_fingerprint[:8],
+            "should_rotate": self.should_rotate_token(user_id),
+            "time_until_timeout": max(0, self.SESSION_TIMEOUT - (now - session.last_activity))
+        }
+    
+    def cleanup_expired_sessions(self) -> int:
+        """
+        Remove all expired sessions
+        
+        Returns:
+            Number of sessions cleaned up
+        """
+        with self._lock:
+            expired_users = []
+            now = time.time()
+            
+            for user_id, session in self._sessions.items():
+                if now - session.last_activity > self.SESSION_TIMEOUT:
+                    expired_users.append(user_id)
+            
+            for user_id in expired_users:
+                del self._sessions[user_id]
+                logger.info(f"Cleaned up expired session for user {user_id}")
+            
+            if expired_users:
+                self._save_sessions()
+            
+            return len(expired_users)
 
 
 # Global instance
