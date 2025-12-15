@@ -185,8 +185,8 @@ class MultiIndicatorStrategy:
         if current_time - self.last_signal_time < self.SIGNAL_COOLDOWN:
             return None
         
-        # Need enough data
-        if len(self.closes) < 50:
+        # Need enough data (reduced from 50 to 30 for faster signal generation)
+        if len(self.closes) < 30:
             return None
         
         return self._analyze()
@@ -458,7 +458,7 @@ class MultiIndicatorStrategy:
     
     def get_current_analysis(self) -> Dict[str, Any]:
         """Get current indicator values without generating signal"""
-        if len(self.closes) < 50:
+        if len(self.closes) < 30:
             return {"status": "insufficient_data", "ticks": len(self.closes)}
         
         prices = list(self.closes)
@@ -514,7 +514,7 @@ class MultiIndicatorStrategy:
     
     def is_ready(self) -> bool:
         """Check if strategy has completed warmup - unified lifecycle hook"""
-        return len(self.closes) >= 50
+        return len(self.closes) >= 30
     
     @property
     def is_trading(self) -> bool:

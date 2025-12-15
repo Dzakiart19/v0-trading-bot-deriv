@@ -148,6 +148,8 @@ class HybridMoneyManager:
         
         # Warning callbacks
         self.on_loss_warning: Optional[Callable[[float, float, float, float], None]] = None
+        self.on_pause_trading: Optional[Callable[[str], None]] = None
+        self.on_resume_trading: Optional[Callable[[], None]] = None
         self.warnings_sent: List[float] = []
         
         # Last balance check
@@ -158,6 +160,13 @@ class HybridMoneyManager:
         # Breach state tracking
         self._breach_triggered = False
         self._breach_reason = ""
+        
+        # Pause state tracking (recoverable pause, not breach)
+        self._pause_triggered = False
+        self._pause_reason = ""
+        self._pause_start_time = 0.0
+        self._pause_cooldown = 60.0  # 60 second cooldown after consecutive losses
+        self._consecutive_loss_limit = 3  # Pause after 3 consecutive losses
         
         # Load any persisted breach state
         self._load_breach_state()
@@ -473,7 +482,7 @@ class HybridMoneyManager:
     
     def should_pause_trading(self) -> tuple:
         """
-        Check if trading should be paused
+        Check if trading should be paused (recoverable pause, not breach)
         
         Returns:
             tuple: (should_pause: bool, reason: str)
@@ -481,20 +490,108 @@ class HybridMoneyManager:
         if not self.metrics:
             return False, ""
         
-        # Too many consecutive losses
-        if self.metrics.consecutive_losses >= 3:
-            return True, f"3+ consecutive losses ({self.metrics.consecutive_losses})"
+        # Check if currently in cooldown pause
+        if self._pause_triggered:
+            elapsed = time.time() - self._pause_start_time
+            if elapsed < self._pause_cooldown:
+                remaining = int(self._pause_cooldown - elapsed)
+                return True, f"Cooldown aktif ({remaining}s tersisa)"
+            else:
+                # Cooldown expired, auto-resume
+                self._auto_resume_from_pause()
+                return False, ""
         
-        # Max drawdown exceeded
+        # Too many consecutive losses - trigger pause with cooldown
+        if self.metrics.consecutive_losses >= self._consecutive_loss_limit:
+            self._trigger_pause(f"{self.metrics.consecutive_losses}x loss berturut-turut")
+            return True, self._pause_reason
+        
+        # Max drawdown exceeded - warning but don't pause
         if self.metrics.max_drawdown > 0.25:
-            return True, f"Max drawdown exceeded ({self.metrics.max_drawdown*100:.1f}%)"
+            logger.warning(f"Max drawdown exceeded ({self.metrics.max_drawdown*100:.1f}%)")
         
-        # Near session loss limit
+        # Near session loss limit (90%) - warning
         session_loss = self.metrics.starting_balance - self.metrics.current_balance
         if session_loss >= self.session_loss_limit * 0.90:
-            return True, "Approaching session loss limit (90%)"
+            logger.warning("Approaching session loss limit (90%)")
         
         return False, ""
+    
+    def _trigger_pause(self, reason: str):
+        """Trigger a recoverable pause with cooldown"""
+        self._pause_triggered = True
+        self._pause_reason = reason
+        self._pause_start_time = time.time()
+        logger.warning(f"Trading paused: {reason} - Cooldown {self._pause_cooldown}s")
+        
+        if self.on_pause_trading:
+            try:
+                self.on_pause_trading(reason)
+            except Exception as e:
+                logger.error(f"Pause callback error: {e}")
+    
+    def _auto_resume_from_pause(self):
+        """Auto-resume trading after cooldown expires"""
+        if not self._pause_triggered:
+            return
+        
+        self._pause_triggered = False
+        old_reason = self._pause_reason
+        self._pause_reason = ""
+        self._pause_start_time = 0.0
+        
+        # Reset consecutive losses counter
+        if self.metrics:
+            self.metrics.consecutive_losses = 0
+        
+        # Switch to ANTI_MARTINGALE mode for safer recovery
+        if self.recovery_mode == RecoveryMode.FIBONACCI:
+            logger.info("Switching to ANTI_MARTINGALE mode for safer recovery")
+            self.recovery_mode = RecoveryMode.ANTI_MARTINGALE
+        
+        logger.info(f"Trading auto-resumed after pause: {old_reason}")
+        
+        if self.on_resume_trading:
+            try:
+                self.on_resume_trading()
+            except Exception as e:
+                logger.error(f"Resume callback error: {e}")
+    
+    def force_resume(self):
+        """Force resume trading from pause state (user initiated)"""
+        if self._pause_triggered:
+            self._auto_resume_from_pause()
+            return True
+        return False
+    
+    def get_pause_status(self) -> Dict[str, Any]:
+        """Get current pause status"""
+        if not self._pause_triggered:
+            return {"paused": False}
+        
+        elapsed = time.time() - self._pause_start_time
+        remaining = max(0, self._pause_cooldown - elapsed)
+        
+        return {
+            "paused": True,
+            "reason": self._pause_reason,
+            "elapsed": int(elapsed),
+            "remaining": int(remaining),
+            "cooldown": int(self._pause_cooldown)
+        }
+    
+    def is_paused(self) -> bool:
+        """Check if trading is in pause state"""
+        if not self._pause_triggered:
+            return False
+        
+        # Check if cooldown expired
+        elapsed = time.time() - self._pause_start_time
+        if elapsed >= self._pause_cooldown:
+            self._auto_resume_from_pause()
+            return False
+        
+        return True
     
     def should_take_profit(self) -> bool:
         """Check if profit target reached"""

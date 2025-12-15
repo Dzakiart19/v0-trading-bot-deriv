@@ -1924,9 +1924,10 @@ Konfigurasi trading otomatis:
                 message = progress_info.get("message", "Loading...")
                 
                 if msg_type in ["warmup", "warmup_complete"]:
-                    if self.application.bot is not None:
+                    if self.application is not None and self.application.bot is not None:
+                        bot = self.application.bot
                         asyncio.run_coroutine_threadsafe(
-                            self.application.bot.send_message(
+                            bot.send_message(
                                 chat_id,
                                 message
                             ),
@@ -2013,8 +2014,9 @@ Konfigurasi trading otomatis:
             is_unlimited = status.get('unlimited_mode', False)
             target = status.get('target_trades', 50)
             if not is_unlimited and target > 0 and current_trades >= target:
-                if self.application.bot is not None:
-                    await self.application.bot.send_message(
+                if self.application is not None and self.application.bot is not None:
+                    bot = self.application.bot
+                    await bot.send_message(
                         chat_id,
                         f"🏁 <b>Target Tercapai!</b>\n\n"
                         f"Total Trades: {current_trades}\n"
@@ -2036,8 +2038,9 @@ Konfigurasi trading otomatis:
         self._last_message_time[chat_id] = now
         
         try:
-            if self.application.bot is not None:
-                await self.application.bot.send_message(chat_id, text, parse_mode=parse_mode)
+            if self.application is not None and self.application.bot is not None:
+                bot = self.application.bot
+                await bot.send_message(chat_id, text, parse_mode=parse_mode)
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
     
@@ -2090,8 +2093,9 @@ Konfigurasi trading otomatis:
                 f"• Next Stake: ${next_stake:.2f}"
             )
             
-            if self.application.bot is not None:
-                await self.application.bot.send_message(
+            if self.application is not None and self.application.bot is not None:
+                bot = self.application.bot
+                await bot.send_message(
                     chat_id, text, parse_mode=ParseMode.HTML
                 )
         except Exception as e:
@@ -2101,8 +2105,9 @@ Konfigurasi trading otomatis:
         """Notify user of trading error"""
         try:
             escaped_msg = html.escape(error_msg)
-            if self.application.bot is not None:
-                await self.application.bot.send_message(
+            if self.application is not None and self.application.bot is not None:
+                bot = self.application.bot
+                await bot.send_message(
                     chat_id,
                     f"⚠️ <b>Trading Error:</b>\n\n<pre>{escaped_msg}</pre>",
                     parse_mode=ParseMode.HTML

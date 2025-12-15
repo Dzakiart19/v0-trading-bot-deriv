@@ -9,8 +9,9 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, TypeVar, Generic
+from typing import Any, Callable, Dict, List, Optional, TypeVar, Generic, Awaitable
 import functools
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +55,8 @@ class RateLimiter:
     - Thread-safe implementation
     """
     
-    def __init__(self, config: RateLimitConfig = None):
-        self.config = config or RateLimitConfig()
+    def __init__(self, config: Optional[RateLimitConfig] = None):
+        self.config = config if config is not None else RateLimitConfig()
         
         self._tokens = self.config.burst_size
         self._last_refill = time.time()
@@ -256,7 +257,7 @@ class CircuitBreaker:
             self._record_failure()
             raise
     
-    async def call_async(self, func: Callable[..., T], *args, **kwargs) -> T:
+    async def call_async(self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T:
         """Execute an async function through the circuit breaker"""
         with self._lock:
             self._check_state_transition()
@@ -274,7 +275,7 @@ class CircuitBreaker:
             result = await func(*args, **kwargs)
             self._record_success()
             return result
-        except Exception as e:
+        except Exception:
             self._record_failure()
             raise
     
@@ -403,7 +404,7 @@ class RetryWithBackoff:
         """Set callback for retry events: callback(attempt, exception, delay)"""
         self._on_retry = callback
     
-    def execute(self, func: Callable[..., T], *args, **kwargs) -> T:
+    def execute(self, func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         """
         Execute a function with retry logic
         
@@ -417,7 +418,7 @@ class RetryWithBackoff:
         Raises:
             Last exception if all retries fail
         """
-        last_exception = None
+        last_exception: Optional[Exception] = None
         
         for attempt in range(self.max_retries + 1):
             try:
@@ -443,13 +444,13 @@ class RetryWithBackoff:
                 
                 time.sleep(delay)
         
-        raise last_exception
+        if last_exception is not None:
+            raise last_exception
+        raise RuntimeError("Retry loop completed without result or exception")
     
-    async def execute_async(self, func: Callable[..., T], *args, **kwargs) -> T:
+    async def execute_async(self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T:
         """Execute an async function with retry logic"""
-        import asyncio
-        
-        last_exception = None
+        last_exception: Optional[Exception] = None
         
         for attempt in range(self.max_retries + 1):
             try:
@@ -475,7 +476,9 @@ class RetryWithBackoff:
                 
                 await asyncio.sleep(delay)
         
-        raise last_exception
+        if last_exception is not None:
+            raise last_exception
+        raise RuntimeError("Retry loop completed without result or exception")
     
     def _calculate_delay(self, attempt: int) -> float:
         """Calculate delay for next retry with exponential backoff"""
@@ -493,16 +496,16 @@ def circuit_breaker(
     name: str,
     failure_threshold: int = 5,
     timeout: float = 30.0
-):
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Decorator to wrap a function with circuit breaker"""
     breaker = CircuitBreaker(name, failure_threshold=failure_threshold, timeout=timeout)
     
-    def decorator(func):
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> T:
             return breaker.call(func, *args, **kwargs)
         
-        wrapper.circuit_breaker = breaker
+        setattr(wrapper, 'circuit_breaker', breaker)
         return wrapper
     
     return decorator
@@ -540,14 +543,14 @@ class APIClient:
     def __init__(
         self,
         name: str,
-        rate_limit: RateLimitConfig = None,
+        rate_limit: Optional[RateLimitConfig] = None,
         circuit_failure_threshold: int = 5,
         circuit_timeout: float = 30.0,
         max_retries: int = 3
     ):
         self.name = name
         
-        self.rate_limiter = RateLimiter(rate_limit or RateLimitConfig())
+        self.rate_limiter = RateLimiter(rate_limit if rate_limit is not None else RateLimitConfig())
         
         self.circuit_breaker = CircuitBreaker(
             name=f"{name}_circuit",

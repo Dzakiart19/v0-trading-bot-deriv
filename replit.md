@@ -104,8 +104,18 @@ The system is built around a FastAPI backend (`web_server.py`) serving both API 
 - **cryptography:** For secure token encryption.
 
 ## Recent Changes
-- **December 15, 2025 (Latest):** 
-  - Achieved ZERO LSP errors across entire codebase
+- **December 15, 2025 (Latest - Critical Bug Fixes):**
+  - **FIXED: Bot stuck after 3x consecutive losses** - Added auto-resume mechanism with 60s cooldown
+  - Implemented `is_paused()`, `_trigger_pause()`, `_auto_resume_from_pause()` in hybrid_money_manager.py
+  - Added pause/resume callbacks (`on_pause_trading`, `on_resume_trading`) for Telegram notifications
+  - Integrated pause state checks in trading.py `_process_signal()` - signals now skipped during cooldown
+  - Watchdog now checks pause and breach state before triggering restart
+  - Auto-switches to ANTI_MARTINGALE mode after cooldown for safer recovery
+  - Fixed ALL LSP errors in circuit_breaker.py (7 errors) and telegram_bot.py (10 errors)
+  - Reduced strategy warmup from 50 to 30 ticks for faster signal generation
+  - Updated sniper_strategy.py MIN_TICKS from 50 to 30
+  - ZERO LSP errors across entire codebase
+- **December 15, 2025 (Earlier):** 
   - Fixed telegram_bot.py: 5 null safety issues (self.application.bot checks)
   - Fixed unlimited mode display bug: Now correctly shows "∞" for target_trades when unlimited
   - Watchdog stuck detection working properly with progressive recovery (30s health check, 45s pending clear, 60s auto-restart)

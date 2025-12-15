@@ -221,7 +221,29 @@ class TradingManager:
             daily_loss_limit=config.daily_loss_limit
         )
         
+        # Connect money manager pause/resume callbacks
+        self.money_manager.on_pause_trading = self._on_money_manager_pause
+        self.money_manager.on_resume_trading = self._on_money_manager_resume
+        
         logger.info(f"Trading configured: {config}")
+    
+    def _on_money_manager_pause(self, reason: str):
+        """Called when money manager triggers a pause (e.g., 3x consecutive losses)"""
+        logger.warning(f"Money manager triggered pause: {reason}")
+        if self.on_progress:
+            self.on_progress({
+                "type": "trading_paused",
+                "message": f"⏸️ Trading dijeda: {reason}\n⏳ Cooldown 60 detik, akan auto-resume..."
+            })
+    
+    def _on_money_manager_resume(self):
+        """Called when money manager auto-resumes from pause"""
+        logger.info("Money manager auto-resumed trading")
+        if self.on_progress:
+            self.on_progress({
+                "type": "trading_resumed",
+                "message": "▶️ Trading dilanjutkan setelah cooldown!\n📉 Mode: Anti-Martingale (lebih aman)"
+            })
     
     def start(self) -> bool:
         """Start automatic trading session"""
@@ -357,6 +379,26 @@ class TradingManager:
                             self._last_activity_time = time.time()
                     
                     elif inactive_time > self._stuck_threshold:
+                        # First check if money manager is in pause state - this is expected behavior
+                        if self.money_manager.is_paused():
+                            pause_status = self.money_manager.get_pause_status()
+                            remaining = pause_status.get("remaining", 0)
+                            logger.info(f"Watchdog: Bot in cooldown pause ({remaining}s remaining) - this is normal")
+                            self._last_activity_time = time.time()  # Reset activity time during pause
+                            continue
+                        
+                        # Check breach state
+                        is_breached, breach_reason = self.money_manager.is_breached()
+                        if is_breached:
+                            logger.warning(f"Watchdog: Money manager breached - {breach_reason}")
+                            if self.on_progress:
+                                self.on_progress({
+                                    "type": "breach_detected",
+                                    "message": f"🛑 Trading dihentikan: {breach_reason}"
+                                })
+                            self.stop()
+                            continue
+                        
                         logger.warning(f"Watchdog: No trade activity for {inactive_time:.0f}s, restarting session...")
                         
                         if self.on_progress:
@@ -682,6 +724,19 @@ class TradingManager:
             
             if not self.config:
                 logger.error("❌ No config available for signal processing")
+                return
+            
+            # Check if money manager is in pause state (e.g., after 3x consecutive losses)
+            if self.money_manager.is_paused():
+                pause_status = self.money_manager.get_pause_status()
+                remaining = pause_status.get("remaining", 0)
+                logger.info(f"⏸️ Signal skipped - cooldown active ({remaining}s remaining)")
+                return
+            
+            # Check if should pause trading (this also handles auto-resume after cooldown)
+            should_pause, pause_reason = self.money_manager.should_pause_trading()
+            if should_pause:
+                logger.info(f"⏸️ Signal skipped - {pause_reason}")
                 return
             
             # Check session limits (skip if unlimited mode is enabled)

@@ -73,7 +73,7 @@ class SniperStrategy:
     # Thresholds - STRICT for high probability only
     MIN_CONFIDENCE = 0.80  # High probability requirement
     MIN_CONFIRMATIONS = 3  # Require multiple confirmations
-    MIN_TICKS = 50  # Proper warmup for indicator accuracy
+    MIN_TICKS = 30  # Reduced warmup for faster signal generation
     
     def __init__(self, symbol: str = "R_100"):
         self.symbol = symbol
